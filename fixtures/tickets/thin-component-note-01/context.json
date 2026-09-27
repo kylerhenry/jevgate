@@ -1,0 +1,80 @@
+{
+  "architecture": [
+    {
+      "title": "Ledger architecture",
+      "text": "Requests flow inward through the layers; nothing in a lower layer imports an upper one.",
+      "items": [
+        {
+          "id": "R01",
+          "kind": "rule",
+          "text": "Interface code never calls the store directly; it goes through a service.",
+          "line": 29
+        },
+        {
+          "id": "R04",
+          "kind": "rule",
+          "text": "Cross-cutting side effects (audit, email) are published on the event bus, not called inline.",
+          "line": 32
+        },
+        {
+          "id": "L02",
+          "kind": "layer",
+          "text": "Service layer",
+          "line": 15,
+          "meta": {
+            "name": "Service layer",
+            "responsibility": "Use cases such as posting entries and closing periods."
+          }
+        },
+        {
+          "id": "L04",
+          "kind": "layer",
+          "text": "Integration layer",
+          "line": 23,
+          "meta": {
+            "name": "Integration layer",
+            "responsibility": "Outbound side effects: the Event bus for audit events, email and bank feeds."
+          }
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "title": "Event bus",
+      "text": "Introduced by ADR 0003.",
+      "meta": {
+        "path": "src/ledger/integration/bus.py",
+        "aliases": [
+          "bus"
+        ]
+      }
+    },
+    {
+      "title": "Postgres store",
+      "text": "Chosen in ADR 0001.",
+      "meta": {
+        "path": "src/ledger/storage/postgres.py",
+        "aliases": [
+          "store"
+        ],
+        "provides": "All SQL for entries, periods, tenants and reporting views; the only module that opens a database connection.",
+        "interface": "post_entry(entry) -> EntryId"
+      }
+    }
+  ],
+  "decisions": [
+    {
+      "title": "ADR 0003: Event bus for audit and email",
+      "text": "Audit records and outbound email are produced by subscribers on the in-process Event bus.",
+      "meta": {
+        "status": "proposed",
+        "decision": "Audit records and outbound email are produced by subscribers on the in-process Event bus, drained after commit.",
+        "alternatives": [
+          "Inline calls from each service",
+          "A message broker such as RabbitMQ"
+        ]
+      }
+    }
+  ]
+}

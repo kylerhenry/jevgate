@@ -1,0 +1,9 @@
+{
+  "route": "gather",
+  "failing_gates": [],
+  "gather": [
+    "components:event-bus"
+  ],
+  "asks": [],
+  "context_json": "context.json"
+}

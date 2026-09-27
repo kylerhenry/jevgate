@@ -1,0 +1,8 @@
+{
+  "route": "split",
+  "failing_gates": [
+    "effort"
+  ],
+  "gather": [],
+  "asks": []
+}

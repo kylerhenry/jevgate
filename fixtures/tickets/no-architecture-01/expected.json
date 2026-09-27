@@ -1,0 +1,9 @@
+{
+  "route": "gather",
+  "failing_gates": [],
+  "gather": [
+    "architecture"
+  ],
+  "asks": [],
+  "context_dir": "fixtures/vault-noarch"
+}
