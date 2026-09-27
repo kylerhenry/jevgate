@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jevgate"
+version = "0.1.0"
+description = "Jev-backed validation gates: a ticket gate (judge-then-generate) and a delivery gate (acceptance criteria vs code and test logs)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Kyle Henry" }]
+keywords = ["typesafe", "jev", "validation", "tickets", "code-review", "llm-agents"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+jevgate = "jevgate.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/kylerhenry/jevgate"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

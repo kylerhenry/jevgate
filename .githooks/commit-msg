@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Reject commit messages that carry AI attribution (see CLAUDE.md "Git attribution").
+# Enabled per clone with: git config core.hooksPath .githooks
+set -euo pipefail
+pattern='(co-authored-by:.*(claude|anthropic)|generated with.*claude|noreply@anthropic\.com|claude code|anthropic)'
+if grep -v '^#' "$1" | grep -qiE "$pattern"; then
+  echo "commit-msg: rejected — the message contains Claude/Anthropic attribution:" >&2
+  grep -v '^#' "$1" | grep -niE "$pattern" | sed 's/^/  /' >&2
+  echo "Remove it (no Co-Authored-By trailer, no 'Generated with' line) and commit again." >&2
+  exit 1
+fi
