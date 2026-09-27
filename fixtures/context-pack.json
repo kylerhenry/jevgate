@@ -1,0 +1,586 @@
+{
+  "architecture": [
+    {
+      "title": "Ledger architecture",
+      "text": "# Ledger architecture\n\nLedger is a small bookkeeping web service: a JSON API and a CLI in front of a Postgres store, with server-rendered invoices. Requests flow inward through the layers below and nothing in a lower layer imports an upper one. Component notes: Cache helper, Postgres store, API router; decisions: 0001-postgres-over-sqlite. The Billing engine is planned and has no note yet.\n\n## Layers\n\n### Interface layer\n\nHTTP handlers (API router), the Ledger CLI and the Invoice renderer: parse input, call a service, format output. No business rules.\n\n### Service layer\n\nUse cases such as posting entries, closing periods and importing statements (CSV importer). Owns validation and the double-entry invariant.\n\n### Storage layer\n\nThe Postgres store and the Cache helper in front of it. The only layer that contains SQL.\n\n### Integration layer\n\nOutbound side effects: the Event bus for audit events, email and bank feeds.\n\n## Rules\n\n- Interface code never calls the store directly; it goes through a service.\n- Every write to the ledger goes through `post_entry`, which enforces double entry.\n- The storage layer is the only layer that contains SQL.\n- Cross-cutting side effects (audit, email) are published on the event bus, not called inline.\n- Reports read from the reporting views, never from the entries table.\n- Money is handled as integer minor units; a float never reaches the storage layer.\n\nRules are checked one by one by the ticket gate and the delivery gate.",
+      "meta": {
+        "kind": "note",
+        "note": "architecture.md",
+        "aliases": [
+          "architecture"
+        ]
+      },
+      "items": [
+        {
+          "id": "L01",
+          "kind": "layer",
+          "text": "Interface layer",
+          "line": 11,
+          "meta": {
+            "name": "Interface layer",
+            "responsibility": "HTTP handlers (API router), the Ledger CLI and the Invoice renderer: parse input, call a service, format output. No business rules."
+          }
+        },
+        {
+          "id": "L02",
+          "kind": "layer",
+          "text": "Service layer",
+          "line": 15,
+          "meta": {
+            "name": "Service layer",
+            "responsibility": "Use cases such as posting entries, closing periods and importing statements (CSV importer). Owns validation and the double-entry invariant."
+          }
+        },
+        {
+          "id": "L03",
+          "kind": "layer",
+          "text": "Storage layer",
+          "line": 19,
+          "meta": {
+            "name": "Storage layer",
+            "responsibility": "The Postgres store and the Cache helper in front of it. The only layer that contains SQL."
+          }
+        },
+        {
+          "id": "L04",
+          "kind": "layer",
+          "text": "Integration layer",
+          "line": 23,
+          "meta": {
+            "name": "Integration layer",
+            "responsibility": "Outbound side effects: the Event bus for audit events, email and bank feeds."
+          }
+        },
+        {
+          "id": "R01",
+          "kind": "rule",
+          "text": "Interface code never calls the store directly; it goes through a service.",
+          "line": 29,
+          "meta": {}
+        },
+        {
+          "id": "R02",
+          "kind": "rule",
+          "text": "Every write to the ledger goes through `post_entry`, which enforces double entry.",
+          "line": 30,
+          "meta": {}
+        },
+        {
+          "id": "R03",
+          "kind": "rule",
+          "text": "The storage layer is the only layer that contains SQL.",
+          "line": 31,
+          "meta": {}
+        },
+        {
+          "id": "R04",
+          "kind": "rule",
+          "text": "Cross-cutting side effects (audit, email) are published on the event bus, not called inline.",
+          "line": 32,
+          "meta": {}
+        },
+        {
+          "id": "R05",
+          "kind": "rule",
+          "text": "Reports read from the reporting views, never from the entries table.",
+          "line": 33,
+          "meta": {}
+        },
+        {
+          "id": "R06",
+          "kind": "rule",
+          "text": "Money is handled as integer minor units; a float never reaches the storage layer.",
+          "line": 34,
+          "meta": {}
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "title": "API router",
+      "text": "# API router\n\nEvery handler is three lines: parse, call a service, render. Handlers never import Postgres store; see the rules in architecture. Authentication is applied by the Auth middleware before a handler runs.",
+      "meta": {
+        "kind": "component",
+        "note": "components/api-router.md",
+        "aliases": [
+          "router",
+          "http api",
+          "api-router"
+        ]
+      },
+      "items": [
+        {
+          "id": "api-router",
+          "kind": "component",
+          "text": "Maps HTTP routes to service calls and turns service errors into JSON error responses.",
+          "line": 9,
+          "meta": {
+            "name": "API router",
+            "path": "src/ledger/api/router.py",
+            "provides": "Maps HTTP routes to service calls and turns service errors into JSON error responses.",
+            "interface": "route(method, path) decorator; error_response(exc) -> Response",
+            "aliases": [
+              "router",
+              "http api"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Auth",
+      "text": "# Auth\n\nTokens are hashed and looked up in the Postgres store `api_tokens` table. No authorization rules live here; services check permissions.",
+      "meta": {
+        "kind": "component",
+        "note": "components/auth.md",
+        "aliases": [
+          "authentication",
+          "session middleware",
+          "auth"
+        ]
+      },
+      "items": [
+        {
+          "id": "auth",
+          "kind": "component",
+          "text": "Session cookie and API token authentication as router middleware; loads the current tenant.",
+          "line": 9,
+          "meta": {
+            "name": "Auth",
+            "path": "src/ledger/api/auth.py",
+            "provides": "Session cookie and API token authentication as router middleware; loads the current tenant.",
+            "interface": "require_user(handler); current_tenant() -> Tenant",
+            "aliases": [
+              "authentication",
+              "session middleware"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Cache helper",
+      "text": "# Cache helper\n\nWraps Postgres store reads. Chosen over a Redis sidecar in 0001-postgres-over-sqlite. Services call it through the store facade; nothing above the storage layer imports it.",
+      "meta": {
+        "kind": "component",
+        "note": "components/cache-helper.md",
+        "aliases": [
+          "cache",
+          "TTL cache",
+          "cache-helper"
+        ]
+      },
+      "items": [
+        {
+          "id": "cache-helper",
+          "kind": "component",
+          "text": "A TTL cache in front of Postgres store reads, keyed by query name and parameters, invalidated on every write through post_entry.",
+          "line": 8,
+          "meta": {
+            "name": "Cache helper",
+            "path": "src/ledger/storage/cache.py",
+            "provides": "A TTL cache in front of Postgres store reads, keyed by query name and parameters, invalidated on every write through post_entry.",
+            "interface": "get(key) -> value | None; set(key, value, ttl_s=60); invalidate(prefix)",
+            "aliases": [
+              "cache",
+              "TTL cache"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "CSV importer",
+      "text": "# CSV importer\n\nMatching rules are per tenant and stored in the Postgres store. Each imported entry publishes an audit event on the Event bus.",
+      "meta": {
+        "kind": "component",
+        "note": "components/csv-importer.md",
+        "aliases": [
+          "importer",
+          "bank import",
+          "csv-importer"
+        ]
+      },
+      "items": [
+        {
+          "id": "csv-importer",
+          "kind": "component",
+          "text": "Parses bank statement CSV files into candidate entries and posts them through post_entry after matching rules.",
+          "line": 9,
+          "meta": {
+            "name": "CSV importer",
+            "path": "src/ledger/services/importer.py",
+            "provides": "Parses bank statement CSV files into candidate entries and posts them through post_entry after matching rules.",
+            "interface": "import_statement(tenant, file) -> ImportReport",
+            "aliases": [
+              "importer",
+              "bank import"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Event bus",
+      "text": "# Event bus\n\nIntroduced by 0003-event-bus-for-audit. Subscribers run after the request's transaction commits, so a failing subscriber never rolls back a posted entry.\n\n## Provides\n\nAn in-process publish/subscribe bus for audit, email and webhook side effects, drained after each request.\n\n## Interface\n\npublish(topic, payload)\nsubscribe(topic, handler)\ndrain",
+      "meta": {
+        "kind": "component",
+        "note": "components/event-bus.md",
+        "aliases": [
+          "bus",
+          "audit events",
+          "event-bus"
+        ]
+      },
+      "items": [
+        {
+          "id": "event-bus",
+          "kind": "component",
+          "text": "An in-process publish/subscribe bus for audit, email and webhook side effects, drained after each request.",
+          "line": 7,
+          "meta": {
+            "name": "Event bus",
+            "path": "src/ledger/integration/bus.py",
+            "provides": "An in-process publish/subscribe bus for audit, email and webhook side effects, drained after each request.",
+            "interface": "publish(topic, payload)\nsubscribe(topic, handler)\ndrain",
+            "aliases": [
+              "bus",
+              "audit events"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Invoice renderer",
+      "text": "# Invoice renderer\n\nServer rendering was decided in 0002-server-rendered-invoices. Reads through the reporting views, never the entries table.",
+      "meta": {
+        "kind": "component",
+        "note": "components/invoice-renderer.md",
+        "aliases": [
+          "renderer",
+          "invoices",
+          "invoice-renderer"
+        ]
+      },
+      "items": [
+        {
+          "id": "invoice-renderer",
+          "kind": "component",
+          "text": "Renders invoices to HTML and PDF from a period's entries using server-side templates.",
+          "line": 9,
+          "meta": {
+            "name": "Invoice renderer",
+            "path": "src/ledger/api/invoices.py",
+            "provides": "Renders invoices to HTML and PDF from a period's entries using server-side templates.",
+            "interface": "render_invoice(invoice_id, fmt='html') -> bytes",
+            "aliases": [
+              "renderer",
+              "invoices"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Ledger CLI",
+      "text": "# Ledger CLI\n\nThin wrapper over the same services the API router calls; output is JSON with --json.",
+      "meta": {
+        "kind": "component",
+        "note": "components/ledger-cli.md",
+        "aliases": [
+          "cli",
+          "ledger command",
+          "ledger-cli"
+        ]
+      },
+      "items": [
+        {
+          "id": "ledger-cli",
+          "kind": "component",
+          "text": "Command-line entry point for posting entries, closing periods and running imports against a local or remote Ledger.",
+          "line": 9,
+          "meta": {
+            "name": "Ledger CLI",
+            "path": "src/ledger/cli.py",
+            "provides": "Command-line entry point for posting entries, closing periods and running imports against a local or remote Ledger.",
+            "interface": "ledger post|close|import|report [--tenant T]",
+            "aliases": [
+              "cli",
+              "ledger command"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Postgres store",
+      "text": "# Postgres store\n\nChosen in 0001-postgres-over-sqlite. Amounts are integer minor units (see the architecture rules). The Cache helper sits in front of reads.",
+      "meta": {
+        "kind": "component",
+        "note": "components/postgres-store.md",
+        "aliases": [
+          "store",
+          "db",
+          "database",
+          "postgres-store"
+        ]
+      },
+      "items": [
+        {
+          "id": "postgres-store",
+          "kind": "component",
+          "text": "All SQL for entries, periods, tenants and reporting views; the only module that opens a database connection.",
+          "line": 9,
+          "meta": {
+            "name": "Postgres store",
+            "path": "src/ledger/storage/postgres.py",
+            "provides": "All SQL for entries, periods, tenants and reporting views; the only module that opens a database connection.",
+            "interface": "post_entry(entry) -> EntryId; entries(period) -> list[Entry]; views.balance(period)",
+            "aliases": [
+              "store",
+              "db",
+              "database"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "title": "Constraints",
+      "text": "# Constraints\n\nNon-functional rules every change must keep.\n\n## Constraints\n\n- Runtime dependencies are Postgres and the Python standard library plus `psycopg`; no other services in production.\n- Every request finishes in under 300 ms at the 95th percentile with 10,000 entries per tenant.\n- Tenant data never crosses a tenant boundary: every query carries the tenant id.\n- Secrets come from the environment; nothing secret is written to logs or the repo.",
+      "meta": {
+        "kind": "note",
+        "note": "constraints.md",
+        "aliases": [
+          "constraints"
+        ]
+      },
+      "items": [
+        {
+          "id": "C01",
+          "kind": "constraint",
+          "text": "Runtime dependencies are Postgres and the Python standard library plus `psycopg`; no other services in production.",
+          "line": 11,
+          "meta": {}
+        },
+        {
+          "id": "C02",
+          "kind": "constraint",
+          "text": "Every request finishes in under 300 ms at the 95th percentile with 10,000 entries per tenant.",
+          "line": 12,
+          "meta": {}
+        },
+        {
+          "id": "C03",
+          "kind": "constraint",
+          "text": "Tenant data never crosses a tenant boundary: every query carries the tenant id.",
+          "line": 13,
+          "meta": {}
+        },
+        {
+          "id": "C04",
+          "kind": "constraint",
+          "text": "Secrets come from the environment; nothing secret is written to logs or the repo.",
+          "line": 14,
+          "meta": {}
+        }
+      ]
+    }
+  ],
+  "conventions": [
+    {
+      "title": "Conventions",
+      "text": "# Conventions\n\nHow code in Ledger is written.\n\n## Conventions\n\n- Public functions carry type hints and a one-line docstring.\n- Errors are raised as `LedgerError` subclasses; handlers translate them, services never catch broadly.\n- Tests live next to the module they cover as `test_<module>.py` and run with pytest.\n- Commit messages are imperative and under 72 characters on the first line.\n- Log lines are structured key=value pairs, never f-strings with embedded values.",
+      "meta": {
+        "kind": "note",
+        "note": "conventions.md",
+        "aliases": [
+          "conventions"
+        ]
+      },
+      "items": [
+        {
+          "id": "V01",
+          "kind": "convention",
+          "text": "Public functions carry type hints and a one-line docstring.",
+          "line": 11,
+          "meta": {
+            "applies_to": [
+              "*.py"
+            ]
+          }
+        },
+        {
+          "id": "V02",
+          "kind": "convention",
+          "text": "Errors are raised as `LedgerError` subclasses; handlers translate them, services never catch broadly.",
+          "line": 12,
+          "meta": {
+            "applies_to": [
+              "*.py"
+            ]
+          }
+        },
+        {
+          "id": "V03",
+          "kind": "convention",
+          "text": "Tests live next to the module they cover as `test_<module>.py` and run with pytest.",
+          "line": 13,
+          "meta": {
+            "applies_to": []
+          }
+        },
+        {
+          "id": "V04",
+          "kind": "convention",
+          "text": "Commit messages are imperative and under 72 characters on the first line.",
+          "line": 14,
+          "meta": {
+            "applies_to": []
+          }
+        },
+        {
+          "id": "V05",
+          "kind": "convention",
+          "text": "Log lines are structured key=value pairs, never f-strings with embedded values.",
+          "line": 15,
+          "meta": {
+            "applies_to": []
+          }
+        }
+      ]
+    }
+  ],
+  "data": [
+    {
+      "title": "Data",
+      "text": "# Data\n\nEntries are immutable rows in `entries` (tenant_id, period_id, account, amount_minor, currency, posted_at). Periods close by inserting a `period_close` row; nothing is updated in place.\n\nReporting views (`v_balance`, `v_trial_balance`) are refreshed by trigger. Migrations are numbered SQL files applied by `ledger migrate`; a migration never rewrites history. The Postgres store owns all of this.",
+      "meta": {
+        "kind": "note",
+        "note": "data.md",
+        "aliases": [
+          "data"
+        ]
+      },
+      "items": []
+    }
+  ],
+  "decisions": [
+    {
+      "title": "ADR 0001: Postgres over SQLite",
+      "text": "# ADR 0001: Postgres over SQLite\n\n## Context\n\nLedger started on SQLite for a single user; multi-tenant hosting needs concurrent writers and row-level tenancy.\n\n## Decision\n\nLedger uses one Postgres database with a tenant column on every table and reporting views per tenant; SQLite is dropped, including for tests.\n\n## Alternatives\n\n- SQLite file per tenant: no concurrent writers and no shared reporting.\n- Redis as a cache tier: rejected in favour of the in-process Cache helper to keep one runtime dependency.\n\n## Consequences\n\nTests run against a throwaway Postgres schema; the Postgres store is the only SQL owner.",
+      "meta": {
+        "kind": "decision",
+        "note": "decisions/0001-postgres-over-sqlite.md",
+        "aliases": [
+          "0001-postgres-over-sqlite"
+        ]
+      },
+      "items": [
+        {
+          "id": "adr-0001-postgres-over-sqlite",
+          "kind": "decision",
+          "text": "Ledger uses one Postgres database with a tenant column on every table and reporting views per tenant; SQLite is dropped, including for tests.",
+          "line": 6,
+          "meta": {
+            "title": "ADR 0001: Postgres over SQLite",
+            "status": "accepted",
+            "decision": "Ledger uses one Postgres database with a tenant column on every table and reporting views per tenant; SQLite is dropped, including for tests.",
+            "alternatives": [
+              "SQLite file per tenant: no concurrent writers and no shared reporting.",
+              "Redis as a cache tier: rejected in favour of the in-process Cache helper to keep one runtime dependency."
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "ADR 0002: Server-rendered invoices",
+      "text": "# ADR 0002: Server-rendered invoices\n\n## Context\n\nCustomers download invoices as PDF and view them as HTML; the two must match.\n\n## Decision\n\nInvoices are rendered on the server to HTML and PDF by the Invoice renderer; there is no client-side invoice template.\n\n## Alternatives\n\n- A JavaScript front end rendering invoices from the JSON API: rejected because PDFs must match the HTML byte for byte.\n- A third-party invoicing SaaS: rejected on data residency.\n\n## Consequences\n\nThe renderer is the only consumer of the reporting views outside reports.",
+      "meta": {
+        "kind": "decision",
+        "note": "decisions/0002-server-rendered-invoices.md",
+        "aliases": [
+          "0002-server-rendered-invoices"
+        ]
+      },
+      "items": [
+        {
+          "id": "adr-0002-server-rendered-invoices",
+          "kind": "decision",
+          "text": "Invoices are rendered on the server to HTML and PDF by the Invoice renderer; there is no client-side invoice template.",
+          "line": 6,
+          "meta": {
+            "title": "ADR 0002: Server-rendered invoices",
+            "status": "accepted",
+            "decision": "Invoices are rendered on the server to HTML and PDF by the Invoice renderer; there is no client-side invoice template.",
+            "alternatives": [
+              "A JavaScript front end rendering invoices from the JSON API: rejected because PDFs must match the HTML byte for byte.",
+              "A third-party invoicing SaaS: rejected on data residency."
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "ADR 0003: Event bus for audit and email",
+      "text": "# ADR 0003: Event bus for audit and email\n\n## Context\n\nEvery service was calling the mailer and writing audit rows inline, so each needed both dependencies.\n\n## Decision\n\nAudit records and outbound email are produced by subscribers on the in-process Event bus, drained after commit; services never call the mailer or the audit table directly.\n\n## Alternatives\n\n- Inline calls from each service: rejected because every service would need the mailer and audit dependencies.\n- A message broker such as RabbitMQ: rejected as infrastructure the deployment does not have.\n\n## Consequences\n\nSide effects become observable in one place; a subscriber failure is logged, not raised.",
+      "meta": {
+        "kind": "decision",
+        "note": "decisions/0003-event-bus-for-audit.md",
+        "aliases": [
+          "0003-event-bus-for-audit"
+        ]
+      },
+      "items": [
+        {
+          "id": "adr-0003-event-bus-for-audit-and-email",
+          "kind": "decision",
+          "text": "Audit records and outbound email are produced by subscribers on the in-process Event bus, drained after commit; services never call the mailer or the audit table directly.",
+          "line": 6,
+          "meta": {
+            "title": "ADR 0003: Event bus for audit and email",
+            "status": "proposed",
+            "decision": "Audit records and outbound email are produced by subscribers on the in-process Event bus, drained after commit; services never call the mailer or the audit table directly.",
+            "alternatives": [
+              "Inline calls from each service: rejected because every service would need the mailer and audit dependencies.",
+              "A message broker such as RabbitMQ: rejected as infrastructure the deployment does not have."
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "glossary": [
+    {
+      "title": "Glossary",
+      "text": "# Glossary\n\n- **Entry**: one debit or credit line against an account, always part of a balanced posting.\n- **Posting**: a set of entries that sums to zero; the unit of every write.\n- **Period**: a month of a tenant's books; closed periods are immutable.\n- **Tenant**: one customer's books; every row carries its tenant id.\n- **Minor units**: integer cents (or equivalent); Ledger never stores a float.",
+      "meta": {
+        "kind": "note",
+        "note": "glossary.md",
+        "aliases": [
+          "glossary"
+        ]
+      },
+      "items": []
+    }
+  ],
+  "interfaces": [
+    {
+      "title": "Interfaces",
+      "text": "# Interfaces\n\n## HTTP API\n\n`/v1/entries`, `/v1/periods`, `/v1/invoices/<id>` and `/v1/reports/<name>`; JSON in and out, errors as `{error: {code, message}}`. Served by the API router.\n\n## CLI\n\n`ledger post|close|import|report`, `--json` mirrors the API shapes (Ledger CLI).\n\n## Compatibility\n\nThe API is versioned by path; removing or renaming a field needs a new version. The CLI's `--json` output follows the API shapes.",
+      "meta": {
+        "kind": "note",
+        "note": "interfaces.md",
+        "aliases": [
+          "interfaces"
+        ]
+      },
+      "items": []
+    }
+  ]
+}
