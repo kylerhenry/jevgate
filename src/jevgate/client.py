@@ -179,7 +179,7 @@ def validate_answer(answer: Any, question: dict) -> dict | None:
         if not isinstance(criteria, list) or not criteria:
             return None
         score = answer.get("score")
-        if isinstance(score, bool) or not isinstance(score, int) or not 0 <= score < len(criteria):
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= len(criteria) - 1:
             return None
         if not _valid_distribution(answer.get("probabilities"), {str(i) for i in range(len(criteria))}):
             return None
@@ -263,7 +263,9 @@ class TypeSafeClient:
 
     ``enabled=False`` answers ``None`` for everything without touching the key,
     the cache or the network. ``cache_dir=None`` uses the default cache
-    directory; ``use_cache=False`` bypasses it entirely.
+    directory; ``use_cache=False`` bypasses it entirely. ``cache_only=True``
+    never calls the transport: a cache miss answers ``None`` for every question
+    in that request and records ``cache miss: <sha>`` in ``usage.errors``.
     """
 
     def __init__(
@@ -276,8 +278,10 @@ class TypeSafeClient:
         timeout: float = 60,
         workers: int = 4,
         use_cache: bool = True,
+        cache_only: bool = False,
     ) -> None:
         self.enabled = enabled
+        self.cache_only = cache_only
         self.cache_dir = Path(cache_dir) if cache_dir is not None else default_cache_dir()
         self.use_cache = use_cache
         self.audit_path = Path(audit_path) if audit_path is not None else None
@@ -320,6 +324,12 @@ class TypeSafeClient:
                 self.usage.cached += 1
             self._record(line)
             return validate_answers(cached.get("response"), questions)
+        if self.cache_only:
+            line["error"] = f"cache miss: {sha}"
+            with self._lock:
+                self.usage.errors.append(line["error"])
+            self._record(line)
+            return unknown
         try:
             key = self._get_key()
         except ClientError as error:
