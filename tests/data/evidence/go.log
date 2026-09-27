@@ -1,0 +1,11 @@
+=== RUN   TestAdd
+--- PASS: TestAdd (0.00s)
+=== RUN   TestDivide
+    calc_test.go:15: expected 2, got 3
+--- FAIL: TestDivide (0.00s)
+=== RUN   TestSkip
+    calc_test.go:20: not today
+--- SKIP: TestSkip (0.00s)
+FAIL
+FAIL	example.com/calc	0.004s
+ok  	example.com/util	0.002s

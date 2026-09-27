@@ -1,0 +1,22 @@
+PASS src/math.test.js
+FAIL src/calc.test.js
+  Calculator
+    ✓ adds numbers (3 ms)
+    ✕ divides numbers (5 ms)
+    ○ skipped multiplies numbers
+
+  ● Calculator › divides numbers
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 3
+
+      12 |   it("divides numbers", () => {
+    > 13 |     expect(divide(6, 2)).toBe(2);
+         |                          ^
+
+Test Suites: 1 failed, 1 passed, 2 total
+Tests:       1 failed, 1 skipped, 3 passed, 5 total
+Snapshots:   0 total
+Time:        1.2 s

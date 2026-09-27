@@ -1,0 +1,23 @@
+   Compiling calc v0.1.0 (/work/calc)
+    Finished test [unoptimized + debuginfo] target(s) in 0.50s
+     Running unittests src/lib.rs (target/debug/deps/calc-abc123)
+
+running 3 tests
+test tests::add ... ok
+test tests::divide ... FAILED
+test tests::slow ... ignored
+
+failures:
+
+---- tests::divide stdout ----
+thread 'tests::divide' panicked at 'assertion failed: `(left == right)`
+  left: `3`,
+ right: `2`', src/lib.rs:20:9
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::divide
+
+test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

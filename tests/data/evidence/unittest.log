@@ -1,0 +1,25 @@
+test_add (tests.test_math.MathTest) ... ok
+test_div (tests.test_math.MathTest) ... FAIL
+test_skip (tests.test_math.MathTest) ... skipped 'not today'
+test_read (tests.test_io.IoTest) ... ERROR
+
+======================================================================
+ERROR: test_read (tests.test_io.IoTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/test_io.py", line 5, in test_read
+    open("missing")
+FileNotFoundError: missing
+
+======================================================================
+FAIL: test_div (tests.test_math.MathTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "tests/test_math.py", line 9, in test_div
+    self.assertEqual(1, 2)
+AssertionError: 1 != 2
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.003s
+
+FAILED (failures=1, errors=1, skipped=1)
