@@ -31,8 +31,8 @@ BANK_QUESTIONS: dict[str, str] = dict(BANK)
 BANK_FAMILY = "bank"
 DEFAULT_THRESHOLD = 0.70
 
-_TRUE = "Nothing settles it, and the answer changes what gets built."
-_FALSE = "It is already settled, or the answer would not change what gets built."
+_TRUE = "The question is open and its answer would change the What or Acceptance."
+_FALSE = "The draft, the notes or existing behaviour settle it, or its answer would not change what gets built."
 
 
 def _norm(text: str) -> str:
@@ -66,8 +66,10 @@ def prior_answer_ids(ticket: dict) -> set[str]:
 
 def bank_instructions(question: str, data_note: str) -> str:
     return (
-        f"Clarifying question: «{question}». Is it unanswered by the draft, the prior answers and the "
-        f"note index, and would different answers lead to a different What or Acceptance?" + data_note
+        f"Clarifying question: «{question}». Would a human's answer to it change the What or Acceptance? "
+        f"It would not when the draft, the prior answers or the note index already answer it, when the answer is "
+        f"existing behaviour the ticket leaves untouched, or when a competent implementer would settle it routinely "
+        f"without asking. Only an open question whose answer changes what gets built counts." + data_note
     )
 
 

@@ -15,4 +15,4 @@ The Event bus (`src/ledger/integration/bus.py`) records a failed webhook deliver
 
 ## Context
 
-- Event bus subscribers run after the request's transaction commits, so a failing subscriber never rolls back a posted entry.
+- The Postgres store (`src/ledger/storage/postgres.py`) holds all SQL and is the only module that opens a database connection.

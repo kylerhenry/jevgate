@@ -15,4 +15,4 @@ __version__ = "0.1.0"
 
 # Bump whenever any question wording, option set or level text changes so the
 # request cache never serves an answer to a question that no longer exists.
-CATALOG_VERSION = "2026-09-27.2"
+CATALOG_VERSION = "2026-09-27.5"

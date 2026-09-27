@@ -84,12 +84,13 @@ def dup_gate(component: Item) -> Gate:
         question=Choice(
             _instructions(
                 f"Component «{item['name']}» ({item['path']}) provides: {item['provides']}. "
-                "Does this file's added code do what that component already does instead of calling it?"
+                "Does this file's added code re-implement what that component already does instead of calling it? "
+                "Test code, code that calls or wraps the component, and code in other areas never count as re-implementing it."
             ),
             {
                 "reimplements": "Added code duplicates behaviour the component provides and could have called.",
                 "calls_it": "The change uses the component.",
-                "unrelated": None,
+                "unrelated": "The added code neither duplicates nor uses the component (test code and unrelated areas included).",
                 "unclear": UNCLEAR_NOTES,
             },
         ),
@@ -168,7 +169,12 @@ def convention_gate(convention: Item) -> Gate:
         id=f"convention:{convention.id}",
         question=Choice(
             _instructions(f"Convention «{convention.text}». Do the added lines in this file follow it?"),
-            {"follows": None, "breaks": None, "not_applicable": None, "unclear": UNCLEAR_NOTES},
+            {
+                "follows": None,
+                "breaks": None,
+                "not_applicable": "The added lines contain nothing the convention speaks about.",
+                "unclear": UNCLEAR_NOTES,
+            },
         ),
         kind="choice",
         needs=frozenset({"conventions"}),
@@ -270,14 +276,19 @@ def ac_met_gate(index: int, bullet: str) -> Gate:
         id=f"ac_met:{index}",
         question=Choice(
             _instructions(
-                f"Acceptance bullet «{bullet}». Judging from the diff, any post-change file excerpts and the test output, "
-                "does the change satisfy it?"
+                f"Acceptance bullet «{bullet}». Judging from the diff and any post-change file excerpts, does the code now do "
+                "what the bullet says? Test output counts only where it shows the behaviour passing or failing; a missing, "
+                "unrelated or absent test is not evidence against the implementation (proof is a separate question). "
+                "Decide from what is shown: the bullet is met when the diff and excerpts show the behaviour, including when the "
+                "shown code delegates routine work (formatting a response, running a query) to a named helper; a bullet that says "
+                "existing behaviour is unchanged is met when the diff leaves that path alone. Answer unclear only when the outcome "
+                "the bullet describes is decided inside code that is neither in the diff nor in the excerpts, so nothing shown confirms it."
             ),
             {
-                "met": "Implemented as described and nothing contradicts it.",
+                "met": "The code implements it as described and nothing contradicts it, whether or not a test shows it.",
                 "partial": "Some of it is implemented.",
                 "not_met": "Not implemented, or the test output contradicts it.",
-                "unclear": "The diff and excerpts do not show enough to decide; the relevant code is outside them.",
+                "unclear": "The outcome the bullet describes is decided inside code that is neither in the diff nor in the excerpts (a hook, callee or module not shown), so nothing shown confirms it.",
             },
         ),
         kind="choice",

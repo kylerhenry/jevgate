@@ -239,7 +239,8 @@ def test_json_ticket_and_project_flag(scripted, repo, tmp_path, capsys):
 def test_errors_exit_4(scripted, repo, tmp_path, capsys):
     assert cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(tmp_path / "missing.log"))) == 4
     assert "test log not found" in capsys.readouterr().err
-    args = ["delivery", "check", "--ticket", str(tmp_path / "nope.md"), "--repo", str(repo), "--base", "HEAD"]
+    args = ["delivery", "check", "--ticket", str(tmp_path / "nope.md"), "--repo", str(repo), "--base", "HEAD",
+            "--run-dir", str(tmp_path / "run")]
     assert cli.main(args) == 4
     assert "ticket not found" in capsys.readouterr().err
     assert cli.main(base_args(repo, tmp_path, "--base", "nonexistent-ref")) == 4

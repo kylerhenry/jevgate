@@ -394,7 +394,7 @@
   "conventions": [
     {
       "title": "Conventions",
-      "text": "# Conventions\n\nHow code in Ledger is written.\n\n## Conventions\n\n- Public functions carry type hints and a one-line docstring.\n- Errors are raised as `LedgerError` subclasses; handlers translate them, services never catch broadly.\n- Tests live next to the module they cover as `test_<module>.py` and run with pytest.\n- Commit messages are imperative and under 72 characters on the first line.\n- Log lines are structured key=value pairs, never f-strings with embedded values.",
+      "text": "# Conventions\n\nHow code in Ledger is written.\n\n## Conventions\n\n- Public functions in production modules carry type hints and a one-line docstring; test functions in `test_*.py` are exempt.\n- Errors are raised as `LedgerError` subclasses; handlers translate them, services never catch broadly.\n- Tests live next to the module they cover as `test_<module>.py` and run with pytest.\n- Commit messages are imperative and under 72 characters on the first line.\n- Log lines are structured key=value pairs, never f-strings with embedded values.",
       "meta": {
         "kind": "note",
         "note": "conventions.md",
@@ -406,7 +406,7 @@
         {
           "id": "V01",
           "kind": "convention",
-          "text": "Public functions carry type hints and a one-line docstring.",
+          "text": "Public functions in production modules carry type hints and a one-line docstring; test functions in `test_*.py` are exempt.",
           "line": 11,
           "meta": {
             "applies_to": [
