@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 3 items
+
+src/ledger/services/test_reports.py::test_balance_sums_view_rows PASSED [ 33%]
+src/ledger/services/test_reports.py::test_balance_excludes_entries_after_period_end PASSED[ 66%]
+src/ledger/services/test_reports.py::test_balance_uses_period_currency PASSED[100%]
+============================== 3 passed in 0.09s ===============================

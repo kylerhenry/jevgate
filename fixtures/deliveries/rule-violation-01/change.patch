@@ -1,0 +1,29 @@
+diff --git a/src/ledger/api/router.py b/src/ledger/api/router.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/api/router.py
++++ b/src/ledger/api/router.py
+@@ -5,3 +5,4 @@
+ from ledger.api.responses import Response, json_error, json_ok
+ from ledger.errors import LedgerError, NotFoundError, ValidationError
++from ledger.storage import postgres
+ 
+@@ -70,5 +71,19 @@ def list_entries(request: Request) -> Response:
+     return json_ok(entries.as_dicts())
+ 
+ 
++@route("GET", "/v1/reports/balance")
++def get_balance(request: Request) -> Response:
++    """Return the tenant balance for the requested period."""
++    period_id = request.query.get("period")
++    with postgres.connect() as conn:
++        row = conn.execute(
++            "SELECT SUM(amount_minor), MAX(currency) FROM entries WHERE tenant_id = %s AND period_id = %s",
++            (request.tenant.id, period_id),
++        ).fetchone()
++    if row is None or row[0] is None:
++        return json_error(404, "period_not_found", f"period {period_id} not found")
++    return json_ok({"period_id": period_id, "balance_minor": int(row[0]), "currency": row[1]})
++
++
+ def error_response(exc: LedgerError) -> Response:
+     """Translate a service error into a JSON error response."""

@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 4 items
+
+src/ledger/services/test_periods.py::test_close_period_writes_one_row PASSED[ 25%]
+src/ledger/services/test_periods.py::test_close_period_publishes_closed_event PASSED[ 50%]
+src/ledger/services/test_periods.py::test_close_period_failing_subscriber_keeps_close PASSED[ 75%]
+src/ledger/services/test_periods.py::test_close_period_no_event_when_close_fails PASSED[100%]
+============================== 4 passed in 0.15s ===============================

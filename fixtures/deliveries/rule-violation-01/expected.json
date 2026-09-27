@@ -1,0 +1,10 @@
+{
+  "verdict": "revise",
+  "failing_gates": [
+    "arch_rule"
+  ],
+  "finding_files": [
+    "src/ledger/api/router.py"
+  ],
+  "gather": []
+}

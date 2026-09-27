@@ -1,0 +1,9 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 3 items
+
+src/ledger/services/test_reports.py::test_balance_sums_view_rows PASSED [ 33%]
+src/ledger/services/test_reports.py::test_balance_second_call_hits_store_once PASSED[ 66%]
+src/ledger/services/test_reports.py::test_balance_cached_equals_uncached PASSED[100%]
+============================== 3 passed in 0.12s ===============================

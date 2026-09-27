@@ -1,0 +1,12 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 6 items
+
+src/ledger/services/test_importer.py::test_import_statement_parses_rows PASSED[ 16%]
+src/ledger/services/test_importer.py::test_import_statement_posts_matched_entries PASSED[ 33%]
+src/ledger/services/test_importer.py::test_import_statement_skips_duplicates PASSED[ 50%]
+src/ledger/services/test_importer.py::test_import_statement_rejects_malformed_csv PASSED[ 66%]
+src/ledger/services/test_importer.py::test_import_statement_publishes_audit_event PASSED[ 83%]
+src/ledger/services/test_importer.py::test_import_statement_logs_row_count PASSED[100%]
+============================== 6 passed in 0.24s ===============================

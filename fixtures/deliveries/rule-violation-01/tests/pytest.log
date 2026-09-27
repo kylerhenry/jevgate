@@ -1,0 +1,8 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 2 items
+
+src/ledger/api/test_router.py::test_get_balance_returns_period_balance PASSED[ 50%]
+src/ledger/api/test_router.py::test_get_balance_unknown_period_is_404 PASSED[100%]
+============================== 2 passed in 0.18s ===============================

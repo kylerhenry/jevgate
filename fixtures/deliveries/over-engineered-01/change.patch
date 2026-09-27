@@ -1,0 +1,71 @@
+diff --git a/src/ledger/services/periods.py b/src/ledger/services/periods.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/services/periods.py
++++ b/src/ledger/services/periods.py
+@@ -1,13 +1,66 @@
+ """Period service: opening and closing bookkeeping periods."""
+ from __future__ import annotations
+ 
++from abc import ABC, abstractmethod
++from dataclasses import dataclass, field
++from typing import Callable, Mapping
++
++from ledger import settings
+ from ledger.errors import LedgerError
++from ledger.integration import bus
+ from ledger.storage import store
+ from ledger.types import Period, User
+ 
+ 
++class AuditEventFactory(ABC):
++    """Builds the topic and payload for one kind of audit event."""
++
++    @abstractmethod
++    def topic(self, action: str) -> str: ...
++
++    @abstractmethod
++    def payload(self, period: Period, user: User) -> dict: ...
++
++
++@dataclass
++class PeriodEventPolicy:
++    """Configurable policy for which period events are published and how."""
++
++    enabled: bool = True
++    topic_prefix: str = "period"
++    payload_builders: Mapping[str, Callable[[Period, User], dict]] = field(default_factory=dict)
++    publisher: Callable[[str, dict], None] = bus.publish
++
++
++class DefaultPeriodEventFactory(AuditEventFactory):
++    def __init__(self, policy: PeriodEventPolicy | None = None) -> None:
++        self.policy = policy or PeriodEventPolicy()
++
++    def topic(self, action: str) -> str:
++        return f"{self.policy.topic_prefix}.{action}"
++
++    def payload(self, period: Period, user: User) -> dict:
++        builder = self.policy.payload_builders.get("closed", _default_payload)
++        return builder(period, user)
++
++
++def _default_payload(period: Period, user: User) -> dict:
++    return {"tenant_id": period.tenant_id, "period_id": period.id, "closed_by": user.id}
++
++
++def _factory() -> AuditEventFactory:
++    name = getattr(settings, "AUDIT_EVENT_STRATEGY", "default")
++    return _FACTORIES[name]()
++
++
++_FACTORIES: dict[str, Callable[[], AuditEventFactory]] = {"default": DefaultPeriodEventFactory}
++
++
+ def close_period(period: Period, user: User) -> None:
+     """Close ``period`` by writing its close row."""
+     if period.closed:
+         raise PeriodClosedError(f"period {period.id} is already closed")
+     store.close_period(period, user)
++    factory = _factory()
++    if factory and getattr(factory, "policy", PeriodEventPolicy()).enabled:
++        bus.publish(factory.topic("closed"), factory.payload(period, user))

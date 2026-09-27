@@ -1,0 +1,10 @@
+{
+  "verdict": "revise",
+  "failing_gates": [
+    "convention"
+  ],
+  "finding_files": [
+    "src/ledger/services/importer.py"
+  ],
+  "gather": []
+}

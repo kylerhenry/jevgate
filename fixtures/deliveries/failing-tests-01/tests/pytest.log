@@ -1,0 +1,32 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 12 items
+
+src/ledger/services/test_posting.py::test_post_entry_writes_balanced_entry PASSED[  8%]
+src/ledger/services/test_posting.py::test_post_entry_rejects_closed_period PASSED[ 16%]
+src/ledger/services/test_posting.py::test_post_entry_writes_nothing_when_closed PASSED[ 25%]
+src/ledger/services/test_posting.py::test_post_entry_open_period_unchanged PASSED[ 33%]
+src/ledger/services/test_posting.py::test_post_entry_rejects_unbalanced_entry PASSED[ 41%]
+src/ledger/services/test_periods.py::test_close_period_writes_one_row PASSED[ 50%]
+src/ledger/services/test_periods.py::test_close_twice_raises PASSED     [ 58%]
+src/ledger/api/test_router.py::test_api_posts_balanced_entry PASSED     [ 66%]
+src/ledger/api/test_router.py::test_api_returns_404_for_unknown_period PASSED[ 75%]
+src/ledger/api/test_router.py::test_api_returns_409_for_closed_period FAILED[ 83%]
+src/ledger/api/test_router.py::test_api_returns_422_for_unbalanced_entry PASSED[ 91%]
+src/ledger/api/test_auth.py::test_token_required PASSED                 [100%]
+
+=================================== FAILURES ===================================
+_______________________________ test_api_returns_409_for_closed_period ______________________________
+
+    def test_api_returns_409_for_closed_period(client):
+        client.store.close_period("2026-08")
+        response = client.post("/v1/entries", json=entry_payload(period_id="2026-08"))
+>       assert response.status == 409
+E       assert 422 == 409
+
+src/ledger/api/test_router.py:36: AssertionError
+
+=========================== short test summary info ============================
+FAILED src/ledger/api/test_router.py::test_api_returns_409_for_closed_period - src/ledger/api/test_router.py:36: AssertionError
+========================= 1 failed, 11 passed in 0.41s =========================

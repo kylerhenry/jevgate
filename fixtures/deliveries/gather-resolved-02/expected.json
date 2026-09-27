@@ -1,0 +1,9 @@
+{
+  "verdict": "accept",
+  "failing_gates": [],
+  "finding_files": [],
+  "gather": [],
+  "files": [
+    "after/src/ledger/storage/postgres.py:1-34"
+  ]
+}

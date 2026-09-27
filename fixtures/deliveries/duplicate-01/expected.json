@@ -1,0 +1,10 @@
+{
+  "verdict": "revise",
+  "failing_gates": [
+    "dup:cache-helper"
+  ],
+  "finding_files": [
+    "src/ledger/services/reports.py"
+  ],
+  "gather": []
+}

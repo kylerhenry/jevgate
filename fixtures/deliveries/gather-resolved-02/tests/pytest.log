@@ -1,0 +1,10 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 4 items
+
+src/ledger/services/test_periods.py::test_close_period_writes_one_row PASSED[ 25%]
+src/ledger/services/test_periods.py::test_close_period_runs_after_close_hook PASSED[ 50%]
+src/ledger/services/test_periods.py::test_close_twice_raises PASSED     [ 75%]
+src/ledger/services/test_periods.py::test_close_period_invalidates_balance_cache PASSED[100%]
+============================== 4 passed in 0.13s ===============================

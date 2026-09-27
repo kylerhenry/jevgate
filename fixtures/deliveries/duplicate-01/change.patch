@@ -1,0 +1,29 @@
+diff --git a/src/ledger/services/reports.py b/src/ledger/services/reports.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/services/reports.py
++++ b/src/ledger/services/reports.py
+@@ -1,12 +1,23 @@
+ """Reporting service: balances and trial balances from the reporting views."""
+ from __future__ import annotations
+ 
++import time
++
+ from ledger.storage import views
+ from ledger.types import BalanceReport, Period
+ 
++_BALANCE_TTL_S = 60.0
++_balance_cache: dict[tuple[str, str], tuple[float, BalanceReport]] = {}
++
+ 
+ def balance(period: Period) -> BalanceReport:
+     """The tenant balance for ``period`` from the reporting view."""
++    key = (period.tenant_id, period.id)
++    hit = _balance_cache.get(key)
++    if hit is not None and time.monotonic() - hit[0] < _BALANCE_TTL_S:
++        return hit[1]
+     rows = views.balance(period)
+     total = sum(row.amount_minor for row in rows)
+-    return BalanceReport(period_id=period.id, balance=total, currency=period.currency)
++    report = BalanceReport(period_id=period.id, balance=total, currency=period.currency)
++    _balance_cache[key] = (time.monotonic(), report)
++    return report

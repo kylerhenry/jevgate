@@ -1,0 +1,30 @@
+diff --git a/src/ledger/services/importer.py b/src/ledger/services/importer.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/services/importer.py
++++ b/src/ledger/services/importer.py
+@@ -1,11 +1,19 @@
+ """CSV importer: bank statements into candidate entries."""
+ from __future__ import annotations
+ 
++import logging
++
+ from ledger.integration import bus
+ from ledger.services.posting import post_entry
+ from ledger.storage import store
+ from ledger.types import ImportReport, Tenant
+ 
++log = logging.getLogger(__name__)
++
++
++def summarize(report):
++    return report.rows, report.posted
++
+ 
+ def import_statement(tenant: Tenant, file) -> ImportReport:
+     """Parse ``file`` and post every matched row through ``post_entry``."""
+@@ -38,3 +48,5 @@ def import_statement(tenant: Tenant, file) -> ImportReport:
+     store.commit()
+     bus.publish("import.completed", {"tenant_id": tenant.id, "posted": report.posted})
++    rows, posted = summarize(report)
++    log.info(f"imported {rows} rows ({posted} posted) for {tenant.id} from {file.name}")
+     return report

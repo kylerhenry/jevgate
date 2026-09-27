@@ -1,0 +1,28 @@
+diff --git a/src/ledger/services/periods.py b/src/ledger/services/periods.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/services/periods.py
++++ b/src/ledger/services/periods.py
+@@ -14,5 +14,6 @@
+ def close_period(period: Period, user: User) -> None:
+     """Close ``period`` by writing its close row and running the store's post-close hook."""
+     if period.closed:
+         raise PeriodClosedError(f"period {period.id} is already closed")
+     store.close_period(period, user)
++    store.after_close(period)
+diff --git a/src/ledger/services/test_periods.py b/src/ledger/services/test_periods.py
+index 5c1a2f0..9e7d3b4 100644
+--- a/src/ledger/services/test_periods.py
++++ b/src/ledger/services/test_periods.py
+@@ -20,6 +20,12 @@ def test_close_period_writes_one_row():
+     assert store.rows("period_close") == [("2026-08", user.id)]
+ 
+ 
++def test_close_period_runs_after_close_hook():
++    store = fake_store()
++    close_period(make_period("2026-08"), user)
++    assert store.after_close_calls == ["2026-08"]
++
++
+ def test_close_twice_raises():
+     store = fake_store(closed_periods={"2026-08"})
+     with pytest.raises(PeriodClosedError):

@@ -1,0 +1,11 @@
+{
+  "verdict": "revise",
+  "failing_gates": [
+    "correctness_defect",
+    "ac_met"
+  ],
+  "finding_files": [
+    "src/ledger/services/reports.py"
+  ],
+  "gather": []
+}
