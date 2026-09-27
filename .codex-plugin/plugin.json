@@ -1,0 +1,11 @@
+{
+  "name": "jevgate",
+  "version": "0.1.0",
+  "description": "Ticket gate and delivery gate for LLM-driven development, judged by TypeSafe's Jev model against your architecture notes.",
+  "author": {
+    "name": "Kyle Henry"
+  },
+  "repository": "https://github.com/kylerhenry/jevgate",
+  "license": "MIT",
+  "skills": "./skills/"
+}

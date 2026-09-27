@@ -1,0 +1,14 @@
+{
+  "name": "jevgate",
+  "description": "Jev-backed validation gates for tickets and code deliveries.",
+  "owner": {
+    "name": "Kyle Henry"
+  },
+  "plugins": [
+    {
+      "name": "jevgate",
+      "description": "Ticket gate and delivery gate skills plus /ticket-gate and /delivery-gate commands; the jevgate CLI is installed separately with pip.",
+      "source": "./"
+    }
+  ]
+}
