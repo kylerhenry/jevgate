@@ -199,9 +199,12 @@ def read(gate: Gate, answer: dict | None) -> Reading:
 
     if gate.kind == "level":
         score = answer.get("score")
-        if isinstance(score, int) and not isinstance(score, bool):
-            reading.level = score
-            reading.legend = _legend(gate.question.to_api().get("criteria"), score)
+        if isinstance(score, (int, float)) and not isinstance(score, bool):
+            # The API returns the probability-weighted level as a float; the
+            # nearest level gives the reader a label to go with the number.
+            levels = gate.question.to_api().get("criteria") or []
+            reading.level = max(0, min(len(levels) - 1, round(score))) if levels else round(score)
+            reading.legend = _legend(levels, reading.level)
         p = _round(_sum(probabilities, (str(i) for i in gate.acceptable)))
         reading.p, reading.p_pass, reading.p_fail, reading.p_unclear = p, p, _round(1 - p), 0.0
         reading.status = "pass" if p >= gate.threshold else "fail"

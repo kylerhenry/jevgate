@@ -209,3 +209,14 @@ def test_to_questions():
     qs = to_questions([pass_gate(), choice_fire_gate()])
     assert list(qs) == ["design_unambiguous", "arch_rule:R03"]
     assert qs["arch_rule:R03"]["type"] == "choice" and "violates" in qs["arch_rule:R03"]["criteria"]
+
+
+def test_float_score_gets_nearest_level_and_legend():
+    from jevgate.questions import Gate, Score, read
+
+    gate = Gate("readability", Score("How readable?", ["dense", "wordy", "plain"]), kind="level",
+                threshold=0.6, acceptable=frozenset({2}))
+    answer = {"type": "score", "score": 1.95, "confidence": 0.92,
+              "probabilities": {"0": 0.0, "1": 0.05, "2": 0.95}, "legend": {"0": "dense", "1": "wordy", "2": "plain"}}
+    reading = read(gate, answer)
+    assert reading.level == 2 and reading.legend == "plain" and reading.status == "pass"
