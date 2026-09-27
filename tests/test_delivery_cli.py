@@ -197,7 +197,7 @@ def test_exit_codes_revise_unproven_gather_uncertain(scripted, repo, tmp_path, c
     # 5: unclear criterion → gather with a --files hint
     scripted["ac_met:2"] = "unclear"
     assert cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(log_ok), "--no-cache")) == 5
-    assert "supply --files" in capsys.readouterr().out
+    assert "pass --files" in capsys.readouterr().out
     del scripted["ac_met:2"]
     # 3: --no-ai
     assert cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(log_ok), "--no-ai")) == 3

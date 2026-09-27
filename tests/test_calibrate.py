@@ -32,7 +32,7 @@ def reading(gate_id: str, kind: str, p: float, *, threshold: float = 0.85, direc
     fire = kind == "fire" or (kind == "choice" and direction == "fire")
     p_pass, p_fail = (round(1 - p, 4), p) if fire else (p, round(1 - p, 4))
     if status is None:
-        if kind == "choice" and p_unclear >= 0.4:
+        if kind == "choice" and p_unclear >= 0.5:
             status = "unclear"
         elif fire:
             status = "fail" if p >= threshold else "pass"
@@ -120,15 +120,15 @@ def test_unclear_sweep_and_snippet_list_only_changes():
     readings, labels = synthetic()
     result = cal.sweep(readings, labels)
     unclear = result["unclear"]
-    assert unclear["default"] == 0.4 and unclear["pairs"] == 4  # only the choice family, asked in four cases
+    assert unclear["default"] == 0.5 and unclear["pairs"] == 4  # only the choice family, asked in four cases
     rows = {row["unclear_at"]: row for row in unclear["rows"]}
     assert rows[0.3]["unclear_gather"] == 1 and rows[0.3]["n_gather"] == 1 and rows[0.3]["unclear_other"] == 0
     assert rows[0.3]["agreement"] == rows[0.4]["agreement"] == 1.0 and rows[0.5]["agreement"] == 0.75
-    assert rows[0.4]["default"] is True
+    assert rows[0.5]["default"] is True
     assert unclear["best"] == 0.3  # ties go to the more cautious (lower) value
     assert result["snippet"] == {"thresholds": {"clear": 0.8, "risk": 0.7}, "unclear_at": 0.3}
 
-    same = cal.sweep(readings, labels, ["depth", "rule"], unclear_ats=[0.4])
+    same = cal.sweep(readings, labels, ["depth", "rule"], unclear_ats=[0.5])
     assert same["snippet"] == {} and list(same["families"]) == ["depth", "rule"]
 
 
@@ -199,7 +199,7 @@ def test_render_marks_defaults_and_lists_every_section():
     assert "### clear (pass, passes when P ≥ t; default 0.85; asked in 4 cases; labelled failing: B)" in text
     assert "| 0.85 * | 1/1 | 1/3 | 0.75 |" in text and "| 0.80 | 1/1 | 0/3 | 1.00 |" in text and "best: 0.80" in text
     assert "### rule (choice, fires when P ≥ t; default 0.60" in text and "best: 0.60 (unchanged)" in text
-    assert "## unclear_at sweep" in text and "| 0.40 * | 1/1 | 0/3 | 1.00 |" in text
+    assert "## unclear_at sweep" in text and "| 0.50 * | 0/1 | 0/3 | 0.75 |" in text and "| 0.40 | 1/1 | 0/3 | 1.00 |" in text
     assert "## Route agreement at current defaults" in text and "agreement: 4/4" in text
     assert "## Gather agreement (expected ⊆ report)" in text and "| C | rule | - | NO |" in text
     assert '"thresholds": {\n    "clear": 0.8\n  }' in text and '"unclear_at": 0.3' in text
@@ -285,7 +285,7 @@ def test_refresh_populates_responses_then_cache_only_reproduces_them(dispatch, s
     assert arch["direction"] == "fire" and arch["labelled_failing"] == ["rule-violation-01"] and arch["asked"] == 3
     default_row = next(r for r in arch["rows"] if r["default"])
     assert default_row["threshold"] == 0.6 and default_row["fires_failing"] == 1 and default_row["fires_passing"] == 0
-    assert first["families"]["design_unambiguous"]["default"] == 0.85 and "uses" not in first["families"]
+    assert first["families"]["design_ambiguous"]["default"] == 0.6 and "uses" not in first["families"]
     assert first["limitations"] == "authored dev set, not held-out; 3 cases; thresholds are defaults, not truths"
     assert all(entry["sha"] == path.stem for path in responses.glob("*.json") for entry in [json.loads(path.read_text())])
 
@@ -309,8 +309,8 @@ def test_markdown_output_out_file_and_gate_subset(dispatch, small_fixtures, tmp_
     assert cli.main([*base, "--refresh", "--gate", "arch_rule", "--thresholds", "0.5,0.7", "--unclear-at", "0.3"]) == 0
     text = capsys.readouterr().out
     assert text.startswith("# jevgate calibrate — ticket\n") and "### arch_rule (choice, fires when P ≥ t; default 0.60" in text
-    assert "| 0.60 * |" in text and "| 0.50 |" in text and "| 0.70 |" in text and "### design_unambiguous" not in text
-    assert "| 0.30 |" in text and "| 0.40 * |" in text
+    assert "| 0.60 * |" in text and "| 0.50 |" in text and "| 0.70 |" in text and "### design_ambiguous" not in text
+    assert "| 0.30 |" in text and "| 0.50 * |" in text
     assert "| rule-violation-01 | revise | revise | yes |" in text and "run again with --refresh" not in text
 
     out = tmp_path / "result.md"

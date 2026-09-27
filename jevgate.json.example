@@ -1,8 +1,8 @@
 {
   "_doc": {
     "_": "Copy to jevgate.json in the repository root. Keys starting with '_' are ignored; every other key must be one of those below.",
-    "thresholds": "Per-gate probability thresholds keyed by gate id (ac_testable:2) or family (ac_testable). Defaults: ticket pass gates 0.85, delivery pass gates 0.90, fire gates 0.60, level gates 0.70 (readability 0.60).",
-    "unclear_at": "A choice gate reads as 'unclear' (route: gather) when P(unclear options) is at least this.",
+    "thresholds": "Per-gate probability thresholds keyed by gate id (ac_testable:2) or family (ac_testable). Defaults: ticket pass gates 0.85, delivery pass gates 0.90, fire gates 0.60 (including the two ambiguity gates design_ambiguous and language_ambiguous, calibrated on the fixtures), level gates 0.70 (readability 0.60).",
+    "unclear_at": "A choice gate reads as 'unclear' (route: gather) when P(unclear options) is at least this. Default 0.50, calibrated on the fixtures.",
     "context": "Where the context pack lives and how it is loaded (see below).",
     "context.dir": "Folder of markdown notes (an Obsidian vault or a subfolder); --context-dir overrides it.",
     "context.project": "null (default) loads every note; a name loads that project's notes (tagged #jevgate/project/<name>) plus untagged notes.",
@@ -12,6 +12,7 @@
     "context.max_items": "Items (components, decisions, rules, conventions) kept per area after lexical selection; null = all.",
     "ignore": "Glob patterns of changed files never sent for review (lockfiles by default).",
     "test_log_globs": "Where 'delivery check' looks for test logs when --test-log is not given.",
+    "source_globs": "Changed files that get the per-file questions (defects, duplication, over-engineering, edge cases, rules, conventions). Suffix globs like 'ignore'. Other files and deleted files still count in the whole-change diff and appear in evidence.files with dropped_reason not_source or deleted.",
     "hedges": "Words and phrases counted as hedges / LLM-isms by the readability rules.",
     "state_budget": "Token cap for one request state (whole-change diff, per-file chunk plus context).",
     "file_budget": "Token cap per file chunk; larger files are split at hunk boundaries.",
@@ -23,7 +24,7 @@
     "workers": "Parallel requests to the TypeSafe API."
   },
   "thresholds": {},
-  "unclear_at": 0.40,
+  "unclear_at": 0.50,
   "context": {
     "dir": null,
     "project": null,
@@ -37,6 +38,10 @@
     "Cargo.lock", "Gemfile.lock", "composer.lock", "go.sum", "*.lock"
   ],
   "test_log_globs": ["test*.log", "tests*.log", "pytest*.log"],
+  "source_globs": [
+    "*.py", "*.js", "*.ts", "*.tsx", "*.jsx", "*.go", "*.rs", "*.java", "*.kt", "*.rb", "*.php",
+    "*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.cs", "*.swift", "*.sh", "*.sql"
+  ],
   "hedges": [
     "leverage", "robust", "seamless", "seamlessly", "utilize", "utilise", "comprehensive",
     "holistic", "streamline", "ensure that", "in order to", "it is important to note",

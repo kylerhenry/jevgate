@@ -486,7 +486,8 @@ def test_evidence_summary_shape():
     assert by_path["src/mod.py"] == {"path": "src/mod.py", "status": "modified", "tokens": 89, "chunks": 1, "truncated": False}
     assert by_path["assets/logo.png"]["dropped_reason"] == "binary" and by_path["assets/logo.png"]["chunks"] == 0
     assert summary["tests"] == [{
-        "path": "pytest.log", "tool": "pytest", "passed": 2, "failed": 1, "skipped": 1, "errors": 1, "sha256": log.sha256,
+        "path": "pytest.log", "tool": "pytest", "passed": 2, "failed": 1, "skipped": 1, "errors": 1,
+        "names_count": len(log.names), "sha256": log.sha256,
     }]
 
 

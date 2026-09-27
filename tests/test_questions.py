@@ -35,7 +35,7 @@ def test_score_to_api_accepts_list():
 
 
 def pass_gate(threshold=0.85):
-    return Gate("design_unambiguous", Noul("q"), "pass", needs={"glossary"}, threshold=threshold)
+    return Gate("why_is_a_problem", Noul("q"), "pass", needs={"glossary"}, threshold=threshold)
 
 
 def fire_gate(threshold=0.60):
@@ -74,7 +74,7 @@ def test_gate_validation():
 
 def test_gate_family_and_item_id():
     assert choice_fire_gate().family == "arch_rule" and choice_fire_gate().item_id == "R03"
-    assert pass_gate().family == "design_unambiguous" and pass_gate().item_id is None
+    assert pass_gate().family == "why_is_a_problem" and pass_gate().item_id is None
     assert Gate("dup:cache-helper", Noul("q"), "info").item_id == "cache-helper"
 
 
@@ -90,7 +90,7 @@ def test_gates_are_hashable_with_needs():
 def test_read_pass_gate():
     ok = read(pass_gate(), {"type": "noul", "noul": 0.95})
     assert (ok.status, ok.p, ok.p_pass, ok.p_fail, ok.borderline) == ("pass", 0.95, 0.95, 0.05, False)
-    assert ok.kind == "pass" and ok.threshold == 0.85 and ok.gate_id == "design_unambiguous"
+    assert ok.kind == "pass" and ok.threshold == 0.85 and ok.gate_id == "why_is_a_problem"
     bad = read(pass_gate(), {"type": "noul", "noul": 0.5})
     assert bad.status == "fail" and bad.p_pass == 0.5
     edge = read(pass_gate(), {"type": "noul", "noul": 0.85})
@@ -152,8 +152,10 @@ def test_read_choice_fire_style():
 
 
 def test_read_choice_unclear_and_na():
-    unclear = read(choice_fire_gate(), choice_answer(complies=0.3, violates=0.2, not_applicable=0.05, unclear=0.45))
-    assert unclear.status == "unclear" and unclear.p_unclear == 0.45 and unclear.borderline is False
+    unclear = read(choice_fire_gate(), choice_answer(complies=0.25, violates=0.15, not_applicable=0.05, unclear=0.55))
+    assert unclear.status == "unclear" and unclear.p_unclear == 0.55 and unclear.borderline is False
+    below = read(choice_fire_gate(), choice_answer(complies=0.3, violates=0.2, not_applicable=0.05, unclear=0.45))
+    assert below.status == "pass"  # 0.45 is under the 0.50 default
     na = read(choice_fire_gate(), choice_answer(complies=0.1, violates=0.3, not_applicable=0.55, unclear=0.05))
     assert na.status == "na"
     # na wins over unclear, unclear wins over pass/fail
@@ -176,7 +178,7 @@ def test_read_none_is_unknown_for_every_kind():
 
 def test_reading_to_dict():
     d = read(pass_gate(), {"type": "noul", "noul": 0.9}).to_dict()
-    assert d["gate_id"] == "design_unambiguous" and d["status"] == "pass" and d["p_unclear"] == 0.0
+    assert d["gate_id"] == "why_is_a_problem" and d["status"] == "pass" and d["p_unclear"] == 0.0
     assert set(d) >= {"p", "p_pass", "p_fail", "p_unclear", "status", "borderline", "level", "legend",
                       "probabilities", "confidence", "choice", "item", "kind", "threshold"}
 
@@ -197,7 +199,7 @@ def test_group_by_needs_preserves_order():
 
 def test_with_overrides_by_id_and_family():
     gates = [choice_fire_gate(), Gate("arch_rule:R07", Noul("q"), "fire", threshold=0.6), pass_gate(), fire_gate()]
-    out = with_overrides(gates, {"arch_rule": 0.7, "arch_rule:R07": 0.95, "design_unambiguous": 0.5})
+    out = with_overrides(gates, {"arch_rule": 0.7, "arch_rule:R07": 0.95, "why_is_a_problem": 0.5})
     assert [g.threshold for g in out] == [0.7, 0.95, 0.5, 0.6]
     assert [g.id for g in out] == [g.id for g in gates]
     assert out[0].hint == "cite the rule" and out[0].fail_options == ("violates",)
@@ -207,7 +209,7 @@ def test_with_overrides_by_id_and_family():
 
 def test_to_questions():
     qs = to_questions([pass_gate(), choice_fire_gate()])
-    assert list(qs) == ["design_unambiguous", "arch_rule:R03"]
+    assert list(qs) == ["why_is_a_problem", "arch_rule:R03"]
     assert qs["arch_rule:R03"]["type"] == "choice" and "violates" in qs["arch_rule:R03"]["criteria"]
 
 

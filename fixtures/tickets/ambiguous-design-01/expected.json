@@ -1,7 +1,7 @@
 {
   "route": "revise",
   "failing_gates": [
-    "design_unambiguous"
+    "design_ambiguous"
   ],
   "gather": [],
   "asks": []

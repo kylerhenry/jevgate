@@ -220,6 +220,16 @@ def touches_gate(index: int, bullet: str) -> Gate:
     )
 
 
+def under_component(file_path: str, component: Item) -> bool:
+    """Whether ``file_path`` is the component's own ``path`` or lies under it (a
+    file cannot re-implement the component it is)."""
+    own = str(component.meta.get("path", "") or "").strip().lstrip("./").rstrip("/")
+    if not own:
+        return False
+    path = file_path.strip().lstrip("./")
+    return path == own or path.startswith(own + "/")
+
+
 def select_components(pack: ContextPack | None, query: str, k: int | None) -> list[Item]:
     """Components ranked by lexical overlap with the patch, capped at ``k`` (None: all)."""
     if pack is None:
@@ -254,11 +264,12 @@ def _tune(gates: list[Gate], cfg: Config | None) -> list[Gate]:
 
 
 def file_gates(file_path: str, pack: ContextPack | None, cfg: Config, acceptance: list[str], query: str) -> list[Gate]:
-    """Every per-file gate for ``file_path``: duplication per selected component,
+    """Every per-file gate for ``file_path``: duplication per selected component
+    (never for the component's own path),
     over-engineering, visible defect, one gate per applicable architecture rule and
     convention, edge cases, and one info gate per acceptance bullet."""
     k = cfg.max_items
-    gates: list[Gate] = [dup_gate(c) for c in select_components(pack, query, k)]
+    gates: list[Gate] = [dup_gate(c) for c in select_components(pack, query, k) if not under_component(file_path, c)]
     gates += [over_engineered_gate(), correctness_gate()]
     gates += [rule_gate(r) for r in select_rules(pack, file_path, query, k)]
     gates += [convention_gate(v) for v in select_conventions(pack, file_path, query, k)]

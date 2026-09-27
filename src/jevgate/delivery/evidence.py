@@ -1055,7 +1055,7 @@ def evidence_summary(
         })
     tests = [
         {"path": log.path, "tool": log.tool, "passed": log.passed, "failed": log.failed,
-         "skipped": log.skipped, "errors": log.errors, "sha256": log.sha256}
+         "skipped": log.skipped, "errors": log.errors, "names_count": len(log.names), "sha256": log.sha256}
         for log in logs
     ]
     return {"files": files, "tests": tests, "compacted": compacted}

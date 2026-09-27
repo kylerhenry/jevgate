@@ -80,11 +80,11 @@ def test_check_ready_exits_0_and_json(canned, tmp_path, capsys):
 def test_check_ask_exits_2_and_threshold_flag(canned, tmp_path, capsys):
     draft = TICKETS / "ready-01" / "draft.md"
     prime(canned, load_ticket(draft), ContextPack.load(FIXTURES / "vault", project="ledger"), Config())
-    canned.answers["design_unambiguous"] = {"noul": 0.8}
+    canned.answers["design_ambiguous"] = {"noul": 0.65}
     canned.answers["bank:B03"] = {"noul": 0.9}
     assert cli.main(["ticket", "check", str(draft), *common(tmp_path, "--json")]) == 2
     assert json.loads(capsys.readouterr().out)["asks"][0]["id"] == "B03"
-    assert cli.main(["ticket", "check", str(draft), *common(tmp_path, "--json", "--threshold", "design_unambiguous=0.7")]) == 0
+    assert cli.main(["ticket", "check", str(draft), *common(tmp_path, "--json", "--threshold", "design_ambiguous=0.7")]) == 0
     assert json.loads(capsys.readouterr().out)["round"] == 2
 
 

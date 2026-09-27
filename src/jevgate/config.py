@@ -24,6 +24,10 @@ DEFAULT_IGNORE = [
     "Cargo.lock", "Gemfile.lock", "composer.lock", "go.sum", "*.lock",
 ]
 DEFAULT_TEST_LOG_GLOBS = ["test*.log", "tests*.log", "pytest*.log"]
+DEFAULT_SOURCE_GLOBS = [
+    "*.py", "*.js", "*.ts", "*.tsx", "*.jsx", "*.go", "*.rs", "*.java", "*.kt", "*.rb", "*.php",
+    "*.c", "*.cc", "*.cpp", "*.h", "*.hpp", "*.cs", "*.swift", "*.sh", "*.sql",
+]
 CONTEXT_KEYS = ("dir", "project", "areas", "follow_links", "context_budget", "max_items")
 
 
@@ -47,10 +51,11 @@ class Config:
     """Every tunable the gates read. Thresholds are keyed by gate id or family."""
 
     thresholds: dict[str, float] = field(default_factory=dict)
-    unclear_at: float = 0.40
+    unclear_at: float = 0.50
     context: dict = field(default_factory=default_context)
     ignore: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE))
     test_log_globs: list[str] = field(default_factory=lambda: list(DEFAULT_TEST_LOG_GLOBS))
+    source_globs: list[str] = field(default_factory=lambda: list(DEFAULT_SOURCE_GLOBS))
     hedges: list[str] = field(default_factory=lambda: list(DEFAULT_HEDGES))
     state_budget: int = 24000
     file_budget: int = 12000
@@ -67,7 +72,7 @@ class Config:
 
 _FIELDS = {f.name for f in fields(Config)}
 _INT_FIELDS = ("state_budget", "file_budget", "tests_budget", "context_budget", "max_file_tokens", "max_asks", "workers")
-_LIST_FIELDS = ("ignore", "test_log_globs", "hedges")
+_LIST_FIELDS = ("ignore", "test_log_globs", "source_globs", "hedges")
 
 
 def _read_json(path: Path) -> dict:

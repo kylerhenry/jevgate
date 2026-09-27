@@ -43,6 +43,7 @@ from .evidence import (
     files_after_state,
     filter_files,
     git_diff,
+    ignored,
     parse_diff,
     parse_test_log,
     read_excerpt,
@@ -53,6 +54,7 @@ from .schema import dedupe_bullets
 
 CONTEXT_AREAS = ("architecture", "components", "conventions")
 WARNED_DROP_REASONS = ("too_large", "generated")
+SKIPPED_REASONS = ("deleted", "not_source")  # no per-file questions, but still in the whole-change diff
 _STATUS_RANK = {"fail": 4, "unclear": 3, "unknown": 2, "pass": 1, "na": 0}
 _MIN_DIFF_BUDGET = 2000
 TICKET_KEYS = ("title", "why", "what")
@@ -209,6 +211,15 @@ def rule_findings(inputs: DeliveryInputs, files: list[FileDiff], dropped: list[d
                 message=f"{record['path']} was not reviewed ({record['dropped_reason']}).",
                 hint="Split an oversized file change into smaller commits or review that file by hand; generated files are skipped on purpose.",
             ))
+    nameless = [log.path for log in inputs.logs if not log.names]
+    if nameless:
+        shown = ", ".join(nameless[:8]) + (" ..." if len(nameless) > 8 else "")
+        findings.append(Finding(
+            id="rule:test_log_has_no_names", source="rule", severity="warn", gate="test_log_has_no_names",
+            location={"logs": nameless[:20]},
+            message=f"The test output names no test ({shown}), so ac_proven and tests_exercise_change cannot pass on it.",
+            hint="Run the suite so the log names each test (pytest -v or -rA, go test -v, jest --verbose; cargo test already does) and pass that output with --test-log.",
+        ))
     if inputs.untracked:
         shown = ", ".join(inputs.untracked[:8]) + (" ..." if len(inputs.untracked) > 8 else "")
         findings.append(Finding(
@@ -255,6 +266,22 @@ def missing_area_gathers(pack: ContextPack | None) -> list[dict]:
 
 # ---------------------------------------------------------------------------
 # Requests
+
+
+def split_reviewable(kept: list[FileDiff], source_globs: list[str]) -> tuple[list[FileDiff], list[dict]]:
+    """Files that get the per-file questions, and records ``{path, status,
+    dropped_reason, tokens}`` for the ones that do not: ``deleted`` files and
+    files matching none of ``source_globs`` (``not_source``). Both kinds stay in
+    the whole-change diff; they only skip the per-file questions."""
+    reviewed: list[FileDiff] = []
+    skipped: list[dict] = []
+    for file in kept:
+        reason = "deleted" if file.status == "deleted" else None if ignored(file.path, source_globs) else "not_source"
+        if reason:
+            skipped.append({"path": file.path, "status": file.status, "dropped_reason": reason, "tokens": file.tokens})
+        else:
+            reviewed.append(file)
+    return reviewed, skipped
 
 
 def _ticket_state(ticket: dict) -> dict:
@@ -424,7 +451,9 @@ def _file_gather(gate: Gate, path: str) -> dict:
         return {"area": "code", "missing": f"supply --files {path} (and the callee its changed logic depends on) so the change can be judged in context", "for": [f"{gate.id}:{path}"]}
     if family == "dup":
         return {"area": "components", "note": gate.item["note"], "item": gate.item["id"],
-                "missing": f"component note for {gate.item['name']} lacks the `provides`/`interface` detail needed to tell whether {path} re-implements it; enrich the note",
+                "missing": (f"could not tell whether {path} re-implements {gate.item['name']}: the note's `provides`/`interface` "
+                            f"do not describe the behaviour touched here; add it to {gate.item['note']}, or pass --files {path} "
+                            "if the hunk shows too little of the file"),
                 "for": [f"{gate.id}:{path}"]}
     if family == "arch_rule":
         return {"area": "architecture", "note": gate.item["note"], "item": gate.item["id"],
@@ -494,8 +523,15 @@ def _change_findings(gates: list[Gate], readings: dict[str, Reading],
         else:  # unclear
             if family == "ac_met":
                 files = location.get("files") or []
-                target = " ".join(files) if files else "<paths touching this criterion>"
-                gather = {"area": "code", "missing": f"supply --files {target} (post-change excerpts of the code that satisfies criterion {gate.item['criterion']})", "for": [gate.id]}
+                index = gate.item["criterion"]
+                if files:
+                    shown = " ".join(files)
+                    missing = (f"criterion {index} is decided in code the diff does not show; touches_ac marked {shown} as contributing: "
+                               f"pass --files {shown} (post-change excerpts of the code that produces the outcome)")
+                else:
+                    missing = (f"criterion {index} is decided outside the diff (no changed file was marked as contributing): "
+                               "pass --files <path> for the code that produces the outcome")
+                gather = {"area": "code", "missing": missing, "for": [gate.id]}
             else:
                 gather = {"area": "ticket", "missing": f"the ticket does not say enough to judge {gate.id}; state the intended scope in What", "for": [gate.id]}
             gathers.append(gather)
@@ -547,22 +583,24 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
     """Judge ``inputs`` and write the round's report into ``run``."""
     files = parse_diff(inputs.diff_text)
     kept, dropped = filter_files(files, ignore=cfg.ignore, max_file_tokens=cfg.max_file_tokens)
+    reviewed, skipped = split_reviewable(kept, cfg.source_globs)
     acceptance = inputs.ticket.get("acceptance") or []
     findings = rule_findings(inputs, files, dropped, pack)
     optional_gather = missing_area_gathers(pack)
     rule_fail = any(f.severity == "fail" for f in findings)
-    chunks = {file.path: chunk_file(file, cfg.file_budget) for file in kept}
+    chunks = {file.path: chunk_file(file, cfg.file_budget) for file in reviewed}
     gathers: list[dict] = []
     readings: dict[str, dict] = {}
     compacted = False
     unknown = False
     proven = False
     file_jobs: list[_FileJob] = []
-    stats = {"files": len(kept), "dropped": len(dropped), "chunks": sum(len(c) for c in chunks.values()), "requests": 0}
+    stats = {"files": len(reviewed), "skipped": len(skipped), "dropped": len(dropped),
+             "chunks": sum(len(c) for c in chunks.values()), "requests": 0}
 
     if not rule_fail:
         all_paths = [file.path for file in files]
-        file_jobs = _file_jobs(inputs, kept, all_paths, chunks, pack, cfg)
+        file_jobs = _file_jobs(inputs, reviewed, all_paths, chunks, pack, cfg)
         state, compacted = change_state(inputs, kept, dropped, cfg)
         gates = rubric.change_gates(acceptance, bool(inputs.logs), cfg)
         questions = to_questions(gates)
@@ -598,7 +636,7 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
     else:
         verdict = "unproven"
 
-    evidence = evidence_summary(kept, dropped, chunks, inputs.logs, compacted)
+    evidence = evidence_summary(reviewed, skipped + dropped, chunks, inputs.logs, compacted)
     evidence["context"] = _context_evidence(file_jobs, pack)
     if inputs.files_after:
         evidence["files_after"] = [{"path": e.get("path"), "range": e.get("range")} for e in inputs.files_after]
@@ -627,6 +665,6 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
 
 __all__ = [
     "DeliveryError", "DeliveryInputs", "build_inputs", "normalise_ticket", "check",
-    "rule_findings", "missing_area_gathers", "file_state", "change_state", "worse", "contributing_files",
+    "rule_findings", "missing_area_gathers", "split_reviewable", "file_state", "change_state", "worse", "contributing_files",
     "EvidenceError",
 ]

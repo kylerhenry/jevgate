@@ -128,7 +128,7 @@ def test_one_request_per_slice_with_only_the_needed_areas(canned, vault, tmp_pat
     assert report.outcome == "ready"
     assert canned.calls == 7
     expected = {
-        "design_unambiguous": {"draft", "glossary"},
+        "design_ambiguous": {"draft", "glossary"},
         "arch_rule:R01": {"draft", "architecture"},
         "overlap:cache-helper": {"draft", "components"},
         "decision:adr-0001-postgres-over-sqlite": {"draft", "components", "decisions"},
@@ -153,7 +153,10 @@ def test_catalog_wording_and_data_note(canned, vault, tmp_path):
     assert gates["scope_boundary"].question.levels[3].startswith("In-scope and deliberately-excluded")
     assert gates["arch_rule:R01"].question.options["unclear"] == rubric.UNCLEAR
     assert gates["arch_rule:R01"].fail_options == ("violates",) and gates["arch_rule:R01"].threshold == 0.60
-    assert gates["design_unambiguous"].threshold == 0.85 and gates["why_is_a_problem"].threshold == 0.70
+    assert gates["design_ambiguous"].kind == "fire" and gates["design_ambiguous"].threshold == 0.60
+    assert gates["language_ambiguous"].kind == "fire" and gates["language_ambiguous"].threshold == 0.60
+    assert gates["design_ambiguous"].question.true["what"] and gates["language_ambiguous"].question.false["examples"]
+    assert gates["why_is_a_problem"].threshold == 0.70
     assert gates["readability"].threshold == 0.60 and gates["effort"].acceptable == frozenset({0, 1, 2})
     assert gates["bank:B03"].kind == "fire" and gates["bank:B03"].threshold == 0.70
     assert set(gates["placement"].question.options) == {"L01", "L02", "L03", "L04", "new_component", "unclear"}
@@ -196,18 +199,18 @@ def test_ready_lists_fired_asks_as_optional(canned, vault, tmp_path):
 
 def test_revise_when_a_gate_fails_and_nothing_to_ask(canned, vault, tmp_path):
     prime(canned, ticket(), vault, Config())
-    canned.answers["design_unambiguous"] = {"noul": 0.3}
+    canned.answers["design_ambiguous"] = {"noul": 0.8}
     report = run_check(tmp_path, ticket(), vault)
     assert report.outcome == "revise" and report.exit_code == 1
-    finding = next(f for f in report.findings if f.id == "jev:design_unambiguous")
-    assert finding.severity == "fail" and finding.p == 0.3 and finding.threshold == 0.85
-    assert finding.location == {"section": "what"} and finding.hint and "below 0.85" in finding.message
+    finding = next(f for f in report.findings if f.id == "jev:design_ambiguous")
+    assert finding.severity == "fail" and finding.p == 0.8 and finding.threshold == 0.60
+    assert finding.location == {"section": "what"} and finding.hint and "at or above 0.6" in finding.message
 
 
 def test_ask_needs_a_fail_and_caps_and_ledgers(canned, vault, tmp_path):
     cfg = Config(max_asks=2)
     prime(canned, ticket(), vault, cfg)
-    canned.answers["design_unambiguous"] = {"noul": 0.3}
+    canned.answers["design_ambiguous"] = {"noul": 0.8}
     for bid, p in (("B01", 0.75), ("B03", 0.95), ("B04", 0.9), ("B06", 0.5)):
         canned.answers[f"bank:{bid}"] = {"noul": p}
     run = make_run(tmp_path)
@@ -250,7 +253,7 @@ def test_gather_only_when_nothing_fails(canned, vault, tmp_path):
     assert unclear.severity == "unclear" and unclear.cites == {"note": "architecture.md", "line": 30}
     assert report.architecture["rules"]["unclear"] == ["R02"] and report.architecture["rules"]["cited"][0]["id"] == "R02"
     # a fail outranks gather: the unclear item is listed alongside
-    canned.answers["design_unambiguous"] = {"noul": 0.2}
+    canned.answers["design_ambiguous"] = {"noul": 0.85}
     report = run_check(tmp_path, ticket(), vault, run=make_run(tmp_path, "r2"), use_cache=False)
     assert report.outcome == "revise" and report.gather and report.exit_code == 1
 
@@ -258,7 +261,7 @@ def test_gather_only_when_nothing_fails(canned, vault, tmp_path):
 def test_split_outranks_everything(canned, vault, tmp_path):
     gates = prime(canned, ticket(), vault, Config())
     set_choice(canned, "split", gates, "design_first", 0.7)
-    canned.answers["design_unambiguous"] = {"noul": 0.2}
+    canned.answers["design_ambiguous"] = {"noul": 0.85}
     set_choice(canned, "arch_rule:R01", gates, "unclear", 0.8)
     canned.answers["bank:B03"] = {"noul": 0.9}
     report = run_check(tmp_path, ticket(), vault)
@@ -353,7 +356,7 @@ def test_select_asks_orders_and_caps():
         Reading(gate_id="bank:B01", kind="fire", status="fail", threshold=0.7, p=0.75),
         Reading(gate_id="bank:B05", kind="fire", status="fail", threshold=0.7, p=0.95),
         Reading(gate_id="bank:B02", kind="fire", status="pass", threshold=0.7, p=0.2),
-        Reading(gate_id="design_unambiguous", kind="pass", status="fail", threshold=0.85, p=0.1),
+        Reading(gate_id="design_ambiguous", kind="fire", status="fail", threshold=0.6, p=0.9),
     ]
     assert [a["id"] for a in select_asks(readings, 4)] == ["B05", "B01"]
     assert [a["id"] for a in select_asks(readings, 1)] == ["B05"]
@@ -365,14 +368,14 @@ def test_select_asks_orders_and_caps():
 def test_rounds_delta_and_ledger_in_one_run_dir(canned, vault, tmp_path):
     run = make_run(tmp_path)
     prime(canned, ticket(), vault, Config())
-    canned.answers["design_unambiguous"] = {"noul": 0.3}
+    canned.answers["design_ambiguous"] = {"noul": 0.8}
     canned.answers["bank:B03"] = {"noul": 0.9}
     first = run_check(tmp_path, ticket(), vault, run=run, use_cache=False)
     assert first.outcome == "ask" and first.round == 1 and run.ledger() == {"B03"}
-    canned.answers["design_unambiguous"] = {"noul": 0.95}
+    canned.answers["design_ambiguous"] = {"noul": 0.05}
     second = run_check(tmp_path, ticket(), vault, run=run, use_cache=False)
     assert second.outcome == "ready" and second.round == 2
-    assert "jev:design_unambiguous" in second.delta["resolved"] and second.delta["new"] == []
+    assert "jev:design_ambiguous" in second.delta["resolved"] and second.delta["new"] == []
     assert json.loads((run.dir / "round-2.json").read_text())["outcome"] == "ready"
     assert (run.dir / "ledger.json").is_file() or run.ledger() == {"B03"}
 
@@ -386,7 +389,7 @@ def test_missing_pack_forces_gather_for_architecture_only(canned, tmp_path):
     assert all("for" in g and g["missing"] for g in report.gather + report.optional["gather"])
     assert {f.id for f in report.findings if f.severity == "warn"} >= {"rule:missing_context_area:architecture", "rule:missing_context_area:data"}
     assert canned.calls == 2
-    assert set(body_for(canned, "design_unambiguous")["state"]) == {"draft"}
+    assert set(body_for(canned, "design_ambiguous")["state"]) == {"draft"}
     assert body_for(canned, "bank:B01")["state"]["pack_index"] == []
 
 

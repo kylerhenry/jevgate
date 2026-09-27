@@ -30,13 +30,13 @@ def full_report():
     return Report(
         gate="ticket", outcome="revise", exit_code=1, run_id="20260927-120000-ticket", round=2,
         findings=[
-            finding("jev:design_unambiguous", "fail", 0.62, gate="design_unambiguous", threshold=0.85,
+            finding("jev:design_ambiguous", "fail", 0.72, gate="design_ambiguous", threshold=0.60,
                     message="Where the logic lives is open.", hint="Name the module.", location={"section": "what"}),
             finding("rule:hedges", "warn", source="rule", message="4 hedges", location={"section": "why"}),
             finding("jev:arch_rule:R03", "unclear", 0.35, gate="arch_rule:R03", threshold=0.6, borderline=False,
                     cites={"note": "architecture.md", "line": 12}, message="Rule R03 may not apply."),
         ],
-        readings={"design_unambiguous": {"status": "fail", "p": 0.62}},
+        readings={"design_ambiguous": {"status": "fail", "p": 0.72}},
         asks=[{"id": "B03", "question": "Which queue is used?", "p": 0.8}],
         gather=[{"area": "components", "note": "cache-helper.md", "missing": "lacks `provides`", "for": ["reuse:cache-helper"]}],
         optional={"asks": [{"id": "B04", "question": "Is retry needed?", "p": 0.7}], "gather": []},
@@ -50,7 +50,7 @@ def full_report():
                   "tests": [{"path": "pytest.log"}], "compacted": True},
         usage={"requests": 3, "cached": 1, "input_tokens": 1200, "output_tokens": 30, "cost_usd": 0.0000504,
                "errors": ["slice-b: TypeSafe HTTP 503"]},
-        delta={"resolved": ["jev:why_is_a_problem"], "new": ["jev:arch_rule:R03"], "unchanged": ["jev:design_unambiguous"]},
+        delta={"resolved": ["jev:why_is_a_problem"], "new": ["jev:arch_rule:R03"], "unchanged": ["jev:design_ambiguous"]},
     )
 
 
@@ -64,7 +64,7 @@ def test_markdown_sections_in_order():
     assert "3 finding(s) (2 fail" not in md  # one fail, one unclear, one warn
     assert "1 fail, 1 unclear, 1 warn" in md and "a split is suggested" in md
     # findings worst first with probability, threshold, message and hint
-    first = body.index("- **jev:design_unambiguous** [fail] (section=what) — p 0.62 vs threshold 0.85 — Where the logic lives is open.")
+    first = body.index("- **jev:design_ambiguous** [fail] (section=what) — p 0.72 vs threshold 0.60 — Where the logic lives is open.")
     assert body[first + 1] == "  hint: Name the module."
     assert body.index("- **jev:arch_rule:R03** [unclear] (cites architecture.md:12) — p 0.35 vs threshold 0.60 — Rule R03 may not apply.") > first
     assert body.index("- **rule:hedges** [warn] (section=why) — 4 hedges") > first
@@ -99,7 +99,7 @@ def test_json_round_trip():
     data = report.to_json()
     assert data["jevgate"] == __version__ and data["catalog"] == CATALOG_VERSION
     assert data["outcome"] == "revise" and data["exit_code"] == 1
-    assert [f["id"] for f in data["findings"]][0] == "jev:design_unambiguous"
+    assert [f["id"] for f in data["findings"]][0] == "jev:design_ambiguous"
     assert isinstance(data["findings"][0], dict) and data["findings"][0]["location"] == {"section": "what"}
     text = json.dumps(data)
     back = Report.from_json(json.loads(text))

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_defaults():
     cfg = Config()
-    assert cfg.thresholds == {} and cfg.unclear_at == 0.40
+    assert cfg.thresholds == {} and cfg.unclear_at == 0.50
     assert cfg.context == {"dir": None, "project": None, "areas": {}, "follow_links": 1,
                            "context_budget": 8000, "max_items": 16}
     assert "package-lock.json" in cfg.ignore and "leverage" in cfg.hedges and "as an AI" in cfg.hedges

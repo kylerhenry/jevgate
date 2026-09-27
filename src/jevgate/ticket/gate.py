@@ -208,7 +208,7 @@ def _location(gate: Gate) -> dict:
         return {"section": "why"}
     if family == "title_matches_body":
         return {"section": "title"}
-    if family in ("language_unambiguous", "readability"):
+    if family in ("language_ambiguous", "readability"):
         return {"section": "body"}
     return {"section": "what"}
 
@@ -228,6 +228,8 @@ def _message(gate: Gate, reading: Reading) -> str:
         return f"{label}: judged level {reading.level} ({reading.legend}); P(acceptable) = {reading.p}."
     if gate.kind == "choice":
         return f"{label}: judged '{reading.choice}' ({reading.legend}); P = {reading.p}."
+    if gate.kind == "fire":
+        return f"{label}: P(true) = {reading.p}, at or above {reading.threshold}."
     return f"{label}: P(true) = {reading.p}, below {reading.threshold}."
 
 

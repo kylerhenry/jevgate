@@ -3,7 +3,8 @@
 This records the first live calibration of both gates against the labelled fixtures
 (`fixtures/tickets`, `fixtures/deliveries`) and one real repository (`carbon-panel`),
 what changed because of it, what was left alone, and how to repeat it. Catalog version
-after this pass: `2026-09-27.5`. All Jev requests are cached in `fixtures/responses/`
+after this pass: `2026-09-27.5`; the follow-up in "Round 5 (polarity flip)" at the end
+moved it to `2026-09-27.6` and supersedes the numbers in "Remaining disagreements". All Jev requests are cached in `fixtures/responses/`
 (131 entries, one per request, no credentials), so `jevgate calibrate` reproduces every
 number below offline.
 
@@ -343,3 +344,111 @@ cd /media/SSD/dev/carbon-panel && SDL_VIDEODRIVER=dummy .venv/bin/pytest -v test
   --test-log /tmp/carbon-tests.log --context-dir /tmp/carbon-pack --project carbon-panel --run-dir /tmp/carbon-run
 .venv/bin/jevgate ticket check /tmp/diy-16-ticket.md --context-dir /tmp/carbon-pack --project carbon-panel --run-dir /tmp/carbon-ticket-run
 ```
+
+## Round 5 (polarity flip), catalog `2026-09-27.6`
+
+Acting on "The 0.85 pass gates" above: the two ambiguity gates were flipped from pass gates
+at 0.85 to fire gates at 0.60 on the defect-finding question, `unclear_at` moved to 0.50, the
+delivery gate stopped asking per-file questions about deleted and non-source files and about a
+component's own path, and a summary-only test log now warns. Everything else is as in round 4.
+
+### Wording adopted
+
+| gate | kind | question (DATA_NOTE appended) | true / false |
+|---|---|---|---|
+| `design_ambiguous` | fire 0.60 | "Does the What leave open a design decision that changes the work: where the logic lives (which component or file), which interface or command changes, or how data flows? Details an implementer settles routinely (variable names, exact log text, formatting) do not count, and a decision the draft delegates to existing behaviour is settled." | true: "At least one such decision is left open and two competent engineers would resolve it differently" (examples: 'Cache the result' without saying which component holds the cache or where it is invalidated; 'Expose it over the API' without naming the endpoint or command). false: "Every such decision is stated or follows directly from the draft" (example: the What names the component by note name or path, the interface or command, and where the data comes from and goes). |
+| `language_ambiguous` | fire 0.60 | "Does any term, pronoun or phrase in the draft ('it', 'them', 'properly', 'the other one', 'handle') have two reasonable readings that would lead a competent engineer to do different work? Ordinary words with one obvious meaning in context, file paths, command names and glossary terms are clear. Judge the words, not the design." | true: "At least one such phrase changes the work" (examples: 'Update it when the other one changes' where each pronoun fits two nouns; 'Handle bad input properly' without saying reject, repair or skip). false: "Each term, pronoun and phrase has one reading in context" (example: every pronoun has one referent and every action names its object, path or value). |
+
+These are the `D2_neg` / `L2_neg` phrasings from the round-4 side-by-side (`wording.py`), with the
+criteria turned into `what` + `examples` objects. The hints now say which kind of ambiguity fired
+and how to remove it (name the component, interface and data path; replace the pronoun or vague
+word with the noun, path or value). The `ac_testable` wording lost the word "unambiguous" twice
+("make the pass/fail outcome definite", "a definite pass/fail outcome") so that no gate text
+carries the old family names; that reword moved its readings by up to 0.05, see below.
+
+### Agreement before and after
+
+| gate | round 4 (catalog .5) | round 5 (catalog .6) |
+|---|---|---|
+| ticket route | 11/16 | 15/16 |
+| ticket gather (expected ⊆ report) | 4/4 | 2/2 |
+| ticket asks (expected ⊆ report) | 1/2 | 1/2 |
+| delivery verdict | 12/13 | 12/13 |
+| delivery gather | 2/2 | 1/1 |
+
+(The gather denominators are what the current fixtures label; nothing was relabelled.)
+`ready-01` and `ready-02` route `ready`, `no-architecture-01` and `thin-component-note-01`
+route `gather` as labelled; `ambiguous-design-01` and `vague-language-01` still fail on the
+flipped gates. `missing-context-01` still routes `revise` instead of `ask` (B04 0.67 against
+`BANK_AT` 0.70, the same as round 4). Delivery is unchanged: `gather-resolved-02` is `met` 0.88
+with 0.12 on `unclear` against 0.90.
+
+### Per-gate readings (P(true) of the fire question; fails at ≥ 0.60)
+
+| case | `design_ambiguous` | `language_ambiguous` | route |
+|---|---|---|---|
+| `ready-01` | 0.21 | 0.18 | ready |
+| `ready-02` | 0.24 | 0.17 | ready |
+| `no-architecture-01` (same draft as ready-01, no architecture notes) | 0.21 | 0.18 | gather |
+| `thin-component-note-01` | 0.40 | 0.33 | gather |
+| `vague-language-01` | 0.79 | 0.93 | revise |
+| `ambiguous-design-01` | 0.83 | 0.56 | revise |
+| `missing-context-01` | 0.68 | 0.21 | revise (labelled ask) |
+| `design-first-01` | 0.77 | 0.32 | split |
+| `too-big-01` | 0.69 | 0.53 | split |
+| other revise-labelled drafts | 0.17–0.50 | 0.13–0.41 | revise |
+
+Sweeps at the new polarity: `language_ambiguous` agrees 14/14 + 1/1 at every threshold from 0.60
+to 0.90 (0.50 fires on two clean drafts). `design_ambiguous` at 0.60 fires on both labelled-failing
+drafts and on three labelled-passing ones (`design-first-01`, `too-big-01`, `vague-language-01`,
+all labelled `split`/`revise` for other reasons, so the route is unaffected); the sweep's "best"
+0.80 would stop firing on `missing-context-01` (0.68), which is labelled failing. 0.60 is kept.
+
+### unclear_at 0.50
+
+Ticket: 1/1 labelled gather still `unclear`, spurious `unclear` on other pairs 3/158 → 0/158
+(agreement 0.90 → 0.92). Delivery: 1/1 and 1/105 → 0/105; the sweep's tie-break still prefers
+0.30 there because every value hits the one labelled case. On the carbon-panel commit 20 of the
+35 `dup` gathers sat at 0.40–0.44 and would now be `pass`; the round-4 trial attributed the rest
+to non-source and deleted files, which the per-file hygiene below stops asking about.
+
+### ac_testable drift and the remaining disagreement
+
+Round 5a (flip only) left `ready-01` and `ready-02` at `revise` on `ac_testable` alone:
+bullet 2 of `ready-01` ("returns the same output as before the run") read 0.84 and bullet 3 of
+`ready-02` ("`test_cli.py::test_report_trial_balance` passes and asserts ...") 0.82, both within
+0.05 of the 0.85 pass threshold. Both bullets are plainly testable, so this is the pass-framed
+asymmetry the round-4 sweep already showed (7/14 labelled-passing cases fire at 0.85; best 0.50).
+The `ac_testable` reword in 5b moved those readings to 0.88 and 0.87 and the family's fires on
+labelled-passing cases from 7/14 to 6/14 at 0.85 (`untestable-ac-01` stays at 0.05–0.07). So the
+two `ready` routes rest on a borderline gate: a 0.04 dip on either bullet routes them `revise`
+again. Class: threshold (pass-framed gate at 0.85); not changed here, because the brief was to
+flip the ambiguity gates only. The evidence says the same fix applies: flip to "is any bullet
+untestable?" as a fire gate, or lower the pass threshold to 0.80.
+
+### Delivery per-file hygiene (no fixture is affected; carbon-panel evidence)
+
+- Deleted files and files outside `source_globs` (default: code suffixes) get no per-file
+  questions; they stay in the whole-change diff and appear in `evidence.files` with
+  `dropped_reason` `deleted` / `not_source`. On the carbon-panel commit this covers the
+  `dup`/`edge_cases`/`over_engineered` rows on `docs/panel-ops.md`, two fixture JSONs and the
+  deleted `host.py`; the round-4 trial counted five of its twelve fails and all 35 gathers as
+  coming from those files and the component's own file (not re-run here).
+- `dup:<cid>` is never asked for a file at or under the component's own `path`.
+- The `dup` unclear message now says what was undecidable ("could not tell whether <file>
+  re-implements <component>: the note's `provides`/`interface` do not describe the behaviour
+  touched here") instead of asserting a missing `provides` line; the `ac_met` unclear hint names
+  the files `touches_ac` marked as contributing, or says the outcome is produced outside the
+  diff and to pass `--files <path>`.
+- A log that names no test (`pytest -q`) adds `rule:test_log_has_no_names` (warn) and
+  `evidence.tests[].names_count` records the parsed names; every delivery fixture log names its
+  tests, so none warns.
+
+### Cost and cache
+
+Round 5a re-asked every ticket request (the catalog bump changes every request hash): 99 ticket
+requests, 0.355 M tokens, $0.014; delivery 32 requests, 0.198 M tokens, $0.008; round 5b (the
+`ac_testable` reword) 14 slice-A requests, 0.040 M tokens, $0.002. Total 145 requests, 0.59 M
+tokens, about $0.024 at $0.04 per million. `fixtures/responses/` was pruned to the 131 entries
+the final offline runs read (`calibrate` without `--refresh` reports no cache misses); note that
+`--refresh` fetches only cache misses, it does not re-ask entries whose hash is unchanged.

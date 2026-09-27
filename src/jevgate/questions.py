@@ -26,8 +26,8 @@ class Noul:
     """A yes/no question answered with a probability that the statement holds."""
 
     instructions: str
-    true: str | None = None
-    false: str | None = None
+    true: str | dict | None = None
+    false: str | dict | None = None
 
     def to_api(self) -> dict:
         question: dict = {"type": "noul", "instructions": self.instructions}
@@ -89,7 +89,7 @@ class Gate:
     fail_options: tuple[str, ...] = ()
     unclear_options: tuple[str, ...] = ("unclear",)
     na_options: tuple[str, ...] = ("not_applicable",)
-    unclear_at: float = 0.40
+    unclear_at: float = 0.50
     item: dict | None = None
     hint: str = ""
 

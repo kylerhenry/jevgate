@@ -238,7 +238,7 @@ def sweep(readings_by_case: Mapping[str, Mapping[str, Mapping[str, Any]]],
           families: Sequence[str] | None = None,
           thresholds: Iterable[float] = DEFAULT_THRESHOLDS,
           unclear_ats: Iterable[float] = DEFAULT_UNCLEAR_ATS,
-          *, unclear_default: float = 0.40,
+          *, unclear_default: float = 0.50,
           aliases: Mapping[str, Sequence[str]] | None = None) -> dict:
     """Re-read every stored reading at every candidate and count agreement with the labels.
 

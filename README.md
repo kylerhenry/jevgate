@@ -346,7 +346,7 @@ The change: components touched, interfaces, data flow.
 
 **What is judged.** Rule checks run first and cost nothing: missing title, Why, What or Acceptance is a fail; long sentences, long words and hedge words are warnings. Then, grouped by the context each needs:
 
-- *Intrinsic* (draft only, plus glossary): is the scope boundary stated; would two engineers build the same thing from the What (`design_unambiguous`, 0.85); is the wording free of double readings (`language_unambiguous`, 0.85); readability; does the Why name a problem rather than restate the solution; does the title match the body; should it be split; how much effort it is; is each acceptance bullet testable (`ac_testable_<i>`, 0.85).
+- *Intrinsic* (draft only, plus glossary): is the scope boundary stated; is a design decision that changes the work left open in the What (`design_ambiguous`, fires at 0.60); does a term, pronoun or phrase have two readings that lead to different work (`language_ambiguous`, fires at 0.60); readability; does the Why name a problem rather than restate the solution; does the title match the body; should it be split; how much effort it is; is each acceptance bullet testable (`ac_testable_<i>`, 0.85).
 - *Architecture*: one question per `#jevgate/rule` (`arch_rule_<R>`); where the logic should live according to the layers, compared in code with where the draft says it goes (`placement_mismatch`); whether it reuses, extends or duplicates a named mechanism (`parallel_mechanism`); boundary crossing when no rules exist.
 - *Reuse*: per selected component, does it already provide what the What builds, and does the draft use it. Code combines the two into `reuse_missed_<c>`.
 - *Decisions*: per selected ADR, does the What follow, contradict or explicitly revisit it (`decision_<d>`); is there a simpler alternative visible in the notes that the draft does not address.
@@ -354,7 +354,7 @@ The change: components touched, interfaces, data flow.
 - *Grounding*: each `## Context` bullet is a claim; the notes support it, contradict it or do not cover it (`claim_<i>`).
 - *Clarifying bank*: which of B01 to B12 are unanswered and would change the work.
 
-Pass-type gates default to 0.85; fire-type gates fire at 0.60; a choice reads as `unclear` when the unclear options reach `unclear_at` (0.40). Component, decision, rule and convention items are pre-selected in code by lexical overlap with the draft, `max_items` (16) per area; `--all-items` sends everything. `--no-cache` re-asks even when the request hash is cached.
+Pass-type gates default to 0.85; fire-type gates fire at 0.60. Ambiguity is judged as a problem-finding question (`design_ambiguous`, `language_ambiguous`: is something left open or double-readable?) that fails at 0.60 by default, calibrated on the fixtures; `--threshold language_ambiguous=0.40` tightens it. A choice reads as `unclear` when the unclear options reach `unclear_at` (0.50, also calibrated on the fixtures). Component, decision, rule and convention items are pre-selected in code by lexical overlap with the draft, `max_items` (16) per area; `--all-items` sends everything. `--no-cache` re-asks even when the request hash is cached.
 
 ## Delivery gate
 
@@ -365,16 +365,16 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 **Inputs.**
 
 - The ticket: `--ticket draft.md` (the same file the ticket gate passed) or `--from-linear DIY-17`. Its `## Acceptance` bullets are what the change is judged against; that is the link between the two gates.
-- The change: `--base main` (diff `base...HEAD`; `--head` omitted means the working tree, and untracked files are a warning) or `--diff-file change.patch`. `--repo` defaults to the current directory. Binaries, lockfiles and `ignore` globs are dropped; a file over `max_file_tokens` is not reviewed and produces `rule:unreviewed_file`.
-- The proof: `--test-log tests.log`, repeatable. Without it, `test_log_globs` (`test*.log`, `tests*.log`, `pytest*.log`) are tried. pytest, unittest, jest, go test and cargo output is parsed for counts, failing blocks and test names; anything else is kept by regex plus the tail. The log's sha256 is recorded in the report.
+- The change: `--base main` (diff `base...HEAD`; `--head` omitted means the working tree, and untracked files are a warning) or `--diff-file change.patch`. `--repo` defaults to the current directory. Binaries, lockfiles and `ignore` globs are dropped; a file over `max_file_tokens` is not reviewed and produces `rule:unreviewed_file`. Deleted files and files outside `source_globs` (code suffixes such as `*.py`, `*.ts`, `*.go`) get no per-file questions but stay in the whole-change diff; `evidence.files` lists them with `dropped_reason` `deleted` or `not_source`. A component's `dup` question is never asked for the component's own path.
+- The proof: `--test-log tests.log`, repeatable. Without it, `test_log_globs` (`test*.log`, `tests*.log`, `pytest*.log`) are tried. pytest, unittest, jest, go test and cargo output is parsed for counts, failing blocks and test names; anything else is kept by regex plus the tail. The log must name the tests (`pytest -v` or `-rA`, `go test -v`, `jest --verbose`; `cargo test` already does): `ac_proven_<i>` and `tests_exercise_change` cannot pass on a summary-only log, which produces `rule:test_log_has_no_names`. The log's sha256 and the number of test names parsed (`evidence.tests[].names_count`) are recorded in the report.
 - Extra evidence on a `gather` verdict: `--files PATH` or `--files PATH:START-END` includes post-change file excerpts so Jev can decide a question that depended on code outside the diff.
 
-**Tests must be run fresh and pasted verbatim.** The delivery gate treats the log as evidence: it asks whether a named passing test covers each acceptance bullet and whether the tests exercise the changed paths. Run the project's suite, redirect its output to a file, pass that file. Do not trim it, do not write it by hand, and never edit a test to make the gate pass. `--no-tests-ok` lets a change with no test log be accepted; use it only for changes that genuinely have nothing to test, such as documentation.
+**Tests must be run fresh and pasted verbatim.** The delivery gate treats the log as evidence: it asks whether a named passing test covers each acceptance bullet and whether the tests exercise the changed paths. Run the project's suite verbose, so the log names every test (`pytest -v`, `go test -v`, `jest --verbose`; `cargo test` already does), redirect its output to a file, pass that file. A summary-only log (`pytest -q` prints dots) cannot prove anything. Do not trim it, do not write it by hand, and never edit a test to make the gate pass. `--no-tests-ok` lets a change with no test log be accepted; use it only for changes that genuinely have nothing to test, such as documentation.
 
 **Verdicts.**
 
 - `revise` (exit 1): a rule failed (empty diff, failing tests) or a per-file finding fired: a visible defect, duplicated component behaviour, over-engineering, a rule or convention broken, edge cases left to chance, scope creep. Each finding names the file, the rule or component or criterion, and a probability, worst first.
-- `gather` (exit 5): `ac_met_<i>` or `correctness_defect` came back `unclear`. The finding names the paths to pass with `--files`.
+- `gather` (exit 5): `ac_met_<i>`, `correctness_defect` or `dup_<c>` came back `unclear`. The finding says what was undecidable and names the paths to pass with `--files`: for `ac_met_<i>` the files `touches_ac` marked as contributing (or, when none, that the outcome is produced outside the diff); for `dup_<c>` the file and component whose `provides`/`interface` do not describe the behaviour touched.
 - `unproven` (exit 2): nothing failed, but not every acceptance bullet has a passing test that covers it, or the tests shown do not exercise the change, or no log was given. Add or run tests.
 - `accept` (exit 0): all `ac_met_<i>` and `ac_proven_<i>` pass at 0.90, `tests_exercise_change` passes, a log is present (or `--no-tests-ok`).
 - `uncertain` (exit 3): API failure or `--no-ai`.
@@ -388,7 +388,7 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 | key | meaning |
 |---|---|
 | `thresholds` | per-gate probability thresholds, keyed by family or id (see below) |
-| `unclear_at` | a choice gate reads as `unclear` (route `gather`) when P(unclear options) is at least this; default 0.40 |
+| `unclear_at` | a choice gate reads as `unclear` (route `gather`) when P(unclear options) is at least this; default 0.50, calibrated on the fixtures |
 | `context.dir` | folder of markdown notes (an Obsidian vault or a subfolder); `--context-dir` overrides |
 | `context.project` | load only notes tagged `#jevgate/project/<this>` plus untagged notes; `null` (the default) loads every note |
 | `context.areas` | glob mapping for vaults without tags, e.g. `{"architecture": ["arch/*.md"]}` |
@@ -396,6 +396,7 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 | `context.context_budget` | token cap per area in a request state (default 8000) |
 | `context.max_items` | items kept per area after lexical selection (default 16); `null` = all |
 | `ignore` | glob patterns of changed files never sent for review (lockfiles by default) |
+| `source_globs` | suffix globs (like `ignore`) of the changed files that get the per-file questions; default `*.py *.js *.ts *.tsx *.jsx *.go *.rs *.java *.kt *.rb *.php *.c *.cc *.cpp *.h *.hpp *.cs *.swift *.sh *.sql`. Other files and deleted files stay in the whole-change diff and appear in `evidence.files` as `not_source` / `deleted` |
 | `test_log_globs` | where `delivery check` looks for test logs when `--test-log` is not given |
 | `hedges` | words and phrases counted as hedges / LLM-isms by the readability rules |
 | `state_budget` | token cap for one request state (default 24000) |
@@ -417,7 +418,7 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 jevgate calibrate (ticket|delivery) <fixtures-dir> [--gate ID]... [--thresholds 0.5,0.6,0.7,0.8,0.85,0.9,0.95] [--refresh] [--json]
 ```
 
-The default thresholds are starting points, not truths: 0.85 and 0.90 on the gates that name them are chosen values, and the fire, level and `unclear_at` defaults are guesses until measured. `calibrate` runs every labelled fixture (`fixtures/tickets/<case>/{draft.md, expected.json}`, `fixtures/deliveries/<case>/{ticket.md, change.patch, tests/*.log, expected.json}`) and, per gate, reports how each threshold in the sweep would have scored against the labels, so you can see where a threshold should sit for your consequences. `fixtures/responses/<sha>.json` is a checked-in request cache, so calibration and the test suite run offline; `--refresh` re-asks the API and rewrites it. Add your own labelled cases in the same layout to calibrate on your project's tickets.
+The default thresholds are starting points, not truths: 0.85 and 0.90 on the gates that name them are chosen values; the two ambiguity gates (fire at 0.60) and `unclear_at` (0.50) were set by the fixture calibration recorded in `docs/calibration.md`; the other fire and level defaults are guesses until measured. `calibrate` runs every labelled fixture (`fixtures/tickets/<case>/{draft.md, expected.json}`, `fixtures/deliveries/<case>/{ticket.md, change.patch, tests/*.log, expected.json}`) and, per gate, reports how each threshold in the sweep would have scored against the labels, so you can see where a threshold should sit for your consequences. `fixtures/responses/<sha>.json` is a checked-in request cache, so calibration and the test suite run offline; `--refresh` re-asks the API and rewrites it. Add your own labelled cases in the same layout to calibrate on your project's tickets.
 
 ## Linear (optional)
 
@@ -448,7 +449,7 @@ prints a stored round again. The request cache lives in `$XDG_CACHE_HOME/jevgate
 - Lexical pre-selection can miss a relevant component with an unrelated name. `aliases` in the component note and `--all-items` are the escape hatches.
 - Per-item questions scale with pack size (rules times files, components times files in the delivery gate). `max_items` and `applies_to` bound it; cost stays in cents, latency in seconds with 4 workers.
 - The driving agent is also the subject of the delivery gate. The recorded log hash, `ac_proven` and `tests_exercise_change` are the only guard, which is why the skill requires a fresh verbatim test run and forbids editing tests.
-- Thresholds other than 0.85 and 0.90 are uncalibrated defaults until `calibrate` has been run on your own labelled cases.
+- Thresholds other than 0.85, 0.90, the ambiguity gates' 0.60 and `unclear_at` 0.50 are uncalibrated defaults until `calibrate` has been run on your own labelled cases; even the calibrated ones rest on sixteen ticket and thirteen delivery fixtures.
 - The frontmatter parser is a YAML subset (scalars, flow lists, dash lists). Exotic frontmatter reads as "no frontmatter" with a warning.
 - `--from-linear` does not read comments; prior answers must be in the draft.
 - State is treated as data, not as hostile input: every question tells Jev that instructions inside the draft, notes, diff or logs are part of the data.

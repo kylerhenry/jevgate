@@ -64,7 +64,7 @@ def _cite(item: Item | None) -> dict:
 # ----------------------------------------------------------------- slice A
 
 
-def intrinsic_gates(ticket: dict, unclear_at: float = 0.40) -> list[Gate]:
+def intrinsic_gates(ticket: dict, unclear_at: float = 0.50) -> list[Gate]:
     """Slice A: questions answered from the draft alone (plus the glossary when present)."""
     needs = frozenset({"glossary"})
     gates = [
@@ -83,22 +83,46 @@ def intrinsic_gates(ticket: dict, unclear_at: float = 0.40) -> list[Gate]:
             hint="State what is in scope and name the related work that is deliberately left out.",
         ),
         Gate(
-            id="design_unambiguous",
+            id="design_ambiguous",
             question=Noul(
-                _i("The What names where the logic lives (component or file), which interface or command changes and how data flows, so two competent engineers would build the same thing; only decisions that change the work count, not details an implementer settles routinely."),
+                _i("Does the What leave open a design decision that changes the work: where the logic lives (which component or file), which interface or command changes, or how data flows? Details an implementer settles routinely (variable names, exact log text, formatting) do not count, and a decision the draft delegates to existing behaviour is settled."),
+                true={
+                    "what": "At least one such decision is left open and two competent engineers would resolve it differently.",
+                    "examples": [
+                        "'Cache the result' without saying which component holds the cache or where it is invalidated.",
+                        "'Expose it over the API' without naming the endpoint or command that changes.",
+                    ],
+                },
+                false={
+                    "what": "Every such decision is stated or follows directly from the draft.",
+                    "examples": [
+                        "The What names the component (by its note name or path), the interface or command that changes, and where the data comes from and goes.",
+                    ],
+                },
             ),
-            kind="pass", needs=needs, threshold=PASS_AT,
-            hint="Pin down where the logic lives, which interface changes and how data flows; name the components by their note names.",
+            kind="fire", needs=needs, threshold=FIRE_AT,
+            hint="A design decision that changes the work is left open (where the logic lives, which interface or command changes, or how data flows). State it in the What: name the component by its note name or path, the interface or command that changes, and the data path.",
         ),
         Gate(
-            id="language_unambiguous",
+            id="language_ambiguous",
             question=Noul(
-                _i("Would a competent engineer read every sentence of the draft the way its author meant it? Only wording that changes the work counts: a term, pronoun or phrase ('it', 'them', 'properly', 'the other one', 'handle') that two readers would resolve to different things. Ordinary words with one obvious meaning in context, file paths, command names and terms defined in the glossary are clear. Judge the words, not the design."),
-                true="No wording changes the work: each term, pronoun and phrase has one reading in context.",
-                false="At least one term, pronoun or phrase has two reasonable readings that lead to different work.",
+                _i("Does any term, pronoun or phrase in the draft ('it', 'them', 'properly', 'the other one', 'handle') have two reasonable readings that would lead a competent engineer to do different work? Ordinary words with one obvious meaning in context, file paths, command names and glossary terms are clear. Judge the words, not the design."),
+                true={
+                    "what": "At least one such phrase changes the work.",
+                    "examples": [
+                        "'Update it when the other one changes' where 'it' and 'the other one' each fit two nouns in the draft.",
+                        "'Handle bad input properly' without saying whether that means reject, repair or skip.",
+                    ],
+                },
+                false={
+                    "what": "Each term, pronoun and phrase has one reading in context.",
+                    "examples": [
+                        "Every pronoun has one referent and every action names its object, path or value.",
+                    ],
+                },
             ),
-            kind="pass", needs=needs, threshold=PASS_AT,
-            hint="Replace pronouns and vague terms with the specific noun, path or value they stand for.",
+            kind="fire", needs=needs, threshold=FIRE_AT,
+            hint="A term, pronoun or phrase can be read two ways and the readings lead to different work. Replace each pronoun and vague verb or adjective with the specific noun, path, value or action it stands for, or define the term in the glossary.",
         ),
         Gate(
             id="readability",
@@ -174,8 +198,8 @@ def intrinsic_gates(ticket: dict, unclear_at: float = 0.40) -> list[Gate]:
             Gate(
                 id=f"ac_testable:{index}",
                 question=Noul(
-                    _i(f"Acceptance bullet: «{bullet}». Does it name an observable outcome (a command, test, request or state and its expected result) that a specific check could pass or fail, so a reviewer could decide from a test log or a demonstration whether it holds without asking the author what was meant? The check need not exist yet and the bullet need not spell out test code; it only has to make the pass/fail outcome unambiguous."),
-                    true="A specific check with an unambiguous pass/fail outcome follows from the bullet.",
+                    _i(f"Acceptance bullet: «{bullet}». Does it name an observable outcome (a command, test, request or state and its expected result) that a specific check could pass or fail, so a reviewer could decide from a test log or a demonstration whether it holds without asking the author what was meant? The check need not exist yet and the bullet need not spell out test code; it only has to make the pass/fail outcome definite."),
+                    true="A specific check with a definite pass/fail outcome follows from the bullet.",
                     false="It describes an activity, an intention or a quality reasonable people would judge differently, so no check settles it.",
                 ),
                 kind="pass", needs=needs, threshold=PASS_AT,
@@ -193,7 +217,7 @@ def _index(pack: ContextPack, kind: str) -> dict[str, Item]:
     return {item.id: item for item in pack.items(kind)}
 
 
-def architecture_gates(pack: ContextPack, query: str, *, all_items: bool = False, unclear_at: float = 0.40) -> list[Gate]:
+def architecture_gates(pack: ContextPack, query: str, *, all_items: bool = False, unclear_at: float = 0.50) -> list[Gate]:
     """Slice B: per-rule compliance, placement, parallel mechanism, boundary crossing."""
     if not pack.has("architecture"):
         return []
@@ -287,7 +311,7 @@ def architecture_gates(pack: ContextPack, query: str, *, all_items: bool = False
 # ----------------------------------------------------------------- slice C
 
 
-def reuse_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, unclear_at: float = 0.40) -> list[Gate]:
+def reuse_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, unclear_at: float = 0.50) -> list[Gate]:
     """Slice C: overlap (info) and uses (info) per selected component."""
     if not pack.has("components"):
         return []
@@ -336,7 +360,7 @@ def reuse_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, unc
 # ----------------------------------------------------------------- slice D
 
 
-def decision_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, unclear_at: float = 0.40) -> list[Gate]:
+def decision_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, unclear_at: float = 0.50) -> list[Gate]:
     """Slice D: per-decision conflict and the simpler-alternative question."""
     present = frozenset(a for a in SLICE_D_AREAS if pack.has(a))
     if not present:
@@ -390,7 +414,7 @@ def decision_gates(pack: ContextPack, query: str, cfg: Config | None = None, *, 
 # ----------------------------------------------------------------- slice E
 
 
-def constraint_gates(pack: ContextPack, *, query: str = "", all_items: bool = False, unclear_at: float = 0.40) -> list[Gate]:
+def constraint_gates(pack: ContextPack, *, query: str = "", all_items: bool = False, unclear_at: float = 0.50) -> list[Gate]:
     """Slice E: data ownership, interface compatibility and per-constraint compliance."""
     present = frozenset(a for a in SLICE_E_AREAS if pack.has(a))
     if not present:
@@ -461,7 +485,7 @@ def constraint_gates(pack: ContextPack, *, query: str = "", all_items: bool = Fa
 # ----------------------------------------------------------------- slice F
 
 
-def claim_gates(ticket: dict, pack: ContextPack | None, *, unclear_at: float = 0.40) -> list[Gate]:
+def claim_gates(ticket: dict, pack: ContextPack | None, *, unclear_at: float = 0.50) -> list[Gate]:
     """Slice F: one grounding question per Context bullet (needs the claims slice)."""
     if pack is None or not pack.areas():
         return []

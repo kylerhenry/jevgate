@@ -256,7 +256,7 @@ def test_gather_with_files_hint(canned, monkeypatch, pack, tmp_path):
     assert report.outcome == "gather" and report.exit_code == 5
     assert len(report.gather) == 1
     entry = report.gather[0]
-    assert entry["for"] == ["ac_met:1"] and entry["missing"].startswith("supply --files")
+    assert entry["for"] == ["ac_met:1"] and "pass --files src/ledger/services/periods.py" in entry["missing"]
     assert "src/ledger/services/periods.py" in entry["missing"]
     unclear = finding(report, "jev:ac_met:1")
     assert unclear and unclear[0].severity == "unclear" and "--files" in unclear[0].hint
@@ -334,7 +334,8 @@ def test_per_file_state_has_only_that_file_and_applicable_items(canned, monkeypa
     diff = synthetic_diff("src/app.py", 1, 3) + synthetic_diff("docs/guide.md", 1, 3)
     ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one", "two"]}
     Script(canned, monkeypatch)
-    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff), pack, tmp_path)
+    cfg = Config(source_globs=["*.py", "*.md"])  # markdown is reviewed here on purpose: the applies/md items
+    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff), pack, tmp_path, cfg=cfg)
     assert report.outcome == "unproven"
     py = bodies_for(canned, "src/app.py")[0]
     md = bodies_for(canned, "docs/guide.md")[0]
@@ -485,3 +486,77 @@ def test_report_markdown_lists_hints(canned, monkeypatch, pack, tmp_path):
     assert "src/ledger/storage/cache.py" in dup.hint
     text = report.to_markdown()
     assert "REVISE" in text and "jev:dup:cache-helper:src/ledger/services/reports.py" in text and "hint:" in text
+
+
+# ---------------------------------------------------------------------------
+# per-file hygiene: source files only, never the component's own path, logs must name tests
+
+
+def test_deleted_and_non_source_files_skip_per_file_questions(canned, monkeypatch, pack, tmp_path):
+    Script(canned, monkeypatch)
+    inputs = inputs_for("accept-01")
+    deleted = (
+        "diff --git a/src/ledger/services/legacy.py b/src/ledger/services/legacy.py\n"
+        "deleted file mode 100644\nindex 1111111..0000000\n--- a/src/ledger/services/legacy.py\n+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n-def legacy():\n-    return 1\n"
+    )
+    inputs.diff_text += deleted + synthetic_diff("docs/guide.md", 1, 3) + synthetic_diff("tests/fixtures/all.json", 1, 3)
+    report = run_gate(inputs, pack, tmp_path)
+    assert report.outcome == "accept"
+    reviewed = {b["state"]["file"]["path"] for b in canned.bodies if "file" in b["state"]}
+    assert reviewed == {"src/ledger/services/posting.py", "src/ledger/api/router.py",
+                        "src/ledger/services/test_posting.py", "src/ledger/api/test_router.py"}
+    by_path = {f["path"]: f for f in report.evidence["files"]}
+    assert by_path["docs/guide.md"]["dropped_reason"] == "not_source" and by_path["docs/guide.md"]["chunks"] == 0
+    assert by_path["tests/fixtures/all.json"]["dropped_reason"] == "not_source"
+    assert by_path["src/ledger/services/legacy.py"] == {"path": "src/ledger/services/legacy.py", "status": "deleted",
+                                                        "tokens": by_path["src/ledger/services/legacy.py"]["tokens"],
+                                                        "chunks": 0, "truncated": False, "dropped_reason": "deleted"}
+    assert "dropped_reason" not in by_path["src/ledger/services/posting.py"]
+    change = bodies_for(canned, "change")[0]["state"]["diff"]
+    assert "docs/guide.md" in change and "src/ledger/services/legacy.py" in change  # still part of the whole change
+    assert not [f for f in report.findings if f.id.startswith("rule:unreviewed_file")]
+    assert report.rules["stats"]["files"] == 4 and report.rules["stats"]["skipped"] == 3 and report.rules["stats"]["dropped"] == 0
+    # a wider source_globs brings the markdown file back
+    inputs = inputs_for("accept-01")
+    inputs.diff_text += synthetic_diff("docs/guide.md", 1, 3)
+    report = run_gate(inputs, pack, tmp_path, cfg=Config(source_globs=["*.py", "*.md"]), run_id="r2")
+    assert "dropped_reason" not in {f["path"]: f for f in report.evidence["files"]}["docs/guide.md"]
+    assert bodies_for(canned, "docs/guide.md")
+
+
+def test_dup_is_never_asked_for_the_components_own_path(pack: ContextPack):
+    from dataclasses import replace as dc_replace
+
+    cfg = Config()
+    own = {g.id for g in rubric.file_gates("src/ledger/storage/cache.py", pack, cfg, ["a"], "cache ttl get set")}
+    other = {g.id for g in rubric.file_gates("src/ledger/services/reports.py", pack, cfg, ["a"], "cache ttl get set")}
+    assert "dup:cache-helper" not in own and "dup:cache-helper" in other
+    assert {g for g in other if g.startswith("dup:")} - own == {"dup:cache-helper"}
+    component = next(c for c in pack.items("component") if c.id == "cache-helper")
+    assert component.meta["path"] == "src/ledger/storage/cache.py"
+    assert rubric.under_component("src/ledger/storage/cache.py", component)
+    assert rubric.under_component("./src/ledger/storage/cache.py", component)
+    assert not rubric.under_component("src/ledger/storage/cache_test.py", component)
+    folder = dc_replace(component, meta={**component.meta, "path": "src/ledger/storage/"})
+    assert rubric.under_component("src/ledger/storage/cache.py", folder)
+    assert rubric.under_component("src/ledger/storage/deep/x.py", folder)
+    assert not rubric.under_component("src/ledger/storage_v2/x.py", folder)
+    nopath = dc_replace(component, meta={**component.meta, "path": ""})
+    assert not rubric.under_component("src/ledger/storage/cache.py", nopath)
+
+
+def test_summary_only_log_warns_that_it_names_no_tests(canned, monkeypatch, pack, tmp_path):
+    Script(canned, monkeypatch)
+    quiet = parse_test_log("quiet.log", "============ test session starts ============\n............\n"
+                                        "============ 12 passed in 0.30s ============\n")
+    assert quiet.tool == "pytest" and quiet.passed == 12 and quiet.names == []
+    report = run_gate(inputs_for("accept-01", logs=[quiet]), pack, tmp_path)
+    warn = [f for f in report.findings if f.id == "rule:test_log_has_no_names"]
+    assert warn and warn[0].severity == "warn" and warn[0].location == {"logs": ["quiet.log"]}
+    assert "pytest -v" in warn[0].hint and "ac_proven" in warn[0].message
+    assert report.evidence["tests"][0]["names_count"] == 0
+    assert report.outcome == "accept"  # a warning never changes the verdict; the proof gates do
+    full = run_gate(inputs_for("accept-01"), pack, tmp_path, run_id="r2")
+    assert not [f for f in full.findings if f.id == "rule:test_log_has_no_names"]
+    assert full.evidence["tests"][0]["names_count"] == 12
