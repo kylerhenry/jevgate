@@ -1,0 +1,53 @@
+{
+  "_doc": {
+    "_": "Copy to jevgate.json in the repository root. Keys starting with '_' are ignored; every other key must be one of those below.",
+    "thresholds": "Per-gate probability thresholds keyed by gate id (ac_testable:2) or family (ac_testable). Defaults: ticket pass gates 0.85, delivery pass gates 0.90, fire gates 0.60, level gates 0.70 (readability 0.60).",
+    "unclear_at": "A choice gate reads as 'unclear' (route: gather) when P(unclear options) is at least this.",
+    "context": "Where the context pack lives and how it is loaded (see below).",
+    "context.dir": "Folder of markdown notes (an Obsidian vault or a subfolder); --context-dir overrides it.",
+    "context.project": "Only notes tagged #jevgate/project/<this> plus untagged notes are loaded; null loads everything.",
+    "context.areas": "Glob mapping for vaults without tags: {\"architecture\": [\"arch/*.md\"], \"components\": [\"components/**/*.md\"]}.",
+    "context.follow_links": "How many wikilink hops to follow from a selected note (0 disables).",
+    "context.context_budget": "Token cap per area in a request state.",
+    "context.max_items": "Items (components, decisions, rules, conventions) kept per area after lexical selection; null = all.",
+    "ignore": "Glob patterns of changed files never sent for review (lockfiles by default).",
+    "test_log_globs": "Where 'delivery check' looks for test logs when --test-log is not given.",
+    "hedges": "Words and phrases counted as hedges / LLM-isms by the readability rules.",
+    "state_budget": "Token cap for one request state (whole-change diff, per-file chunk plus context).",
+    "file_budget": "Token cap per file chunk; larger files are split at hunk boundaries.",
+    "tests_budget": "Token cap for the parsed test output in the whole-change request.",
+    "context_budget": "Default per-area token cap when context.context_budget is not set.",
+    "max_file_tokens": "Files over this many tokens are not reviewed and produce rule:unreviewed_file.",
+    "max_items": "Default per-area item cap when context.max_items is not set; --all-items lifts it.",
+    "max_asks": "At most this many bank questions are put to the human per round.",
+    "workers": "Parallel requests to the TypeSafe API."
+  },
+  "thresholds": {},
+  "unclear_at": 0.40,
+  "context": {
+    "dir": null,
+    "project": null,
+    "areas": {},
+    "follow_links": 1,
+    "context_budget": 8000,
+    "max_items": 16
+  },
+  "ignore": [
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock", "Pipfile.lock",
+    "Cargo.lock", "Gemfile.lock", "composer.lock", "go.sum", "*.lock"
+  ],
+  "test_log_globs": ["test*.log", "tests*.log", "pytest*.log"],
+  "hedges": [
+    "leverage", "robust", "seamless", "seamlessly", "utilize", "utilise", "comprehensive",
+    "holistic", "streamline", "ensure that", "in order to", "it is important to note",
+    "it's worth noting", "various", "cutting-edge", "state-of-the-art", "delve", "as an AI"
+  ],
+  "state_budget": 24000,
+  "file_budget": 12000,
+  "tests_budget": 6000,
+  "context_budget": 8000,
+  "max_file_tokens": 40000,
+  "max_items": 16,
+  "max_asks": 4,
+  "workers": 4
+}
