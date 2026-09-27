@@ -22,6 +22,7 @@ from . import __version__
 from .client import ClientError, TypeSafeClient
 from .config import Config, ConfigError, apply_cli
 from .config import load as load_config_files
+from .linear import LinearError
 from .report import Report
 from .runs import DEFAULT_ROOT, Run
 
@@ -149,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
     try:
         return int(func(args))
-    except (ClientError, ConfigError, FileNotFoundError) as error:
+    except (ClientError, ConfigError, FileNotFoundError, LinearError) as error:
         print(f"jevgate: error: {error}", file=sys.stderr)
         return EXIT_ERROR
 
