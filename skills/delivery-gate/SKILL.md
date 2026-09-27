@@ -41,6 +41,6 @@ The gate reads the ticket's `## Acceptance` bullets back, diffs the change, and 
 
 ## Useful flags
 
-`--all-items` sends every component and rule instead of the lexical top 16 (use when a `dup_` or `arch_rule` you expected did not appear in `## Evidence`). `--json` for the JSON report. `--no-cache` re-asks cached requests. `jevgate report <run-dir> [--round N]` reprints a stored round.
+`--all-items` sends every component and rule instead of the lexical top 16 (use when a `dup_` or `arch_rule` you expected did not appear in `## Evidence`). `--json` for the JSON report. `--no-cache` re-asks cached requests. `--project NAME` scopes the pack to one project's notes plus untagged ones; `--context-json F` uses a prebuilt pack instead of a folder. `jevgate report <run-dir> [--round N]` reprints a stored round.
 
 If `jevgate` is not on PATH: `python3 -m pip install --user git+https://github.com/kylerhenry/jevgate`

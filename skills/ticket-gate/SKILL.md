@@ -12,7 +12,7 @@ The gate judges a draft against standardized criteria and your project's context
 
 ## Procedure
 
-1. **Check the pack.** Run `jevgate context show --why`. It must list `architecture` (with `R..` rule items), `components` and `decisions` at least; anything missing yields `gather` later. If the pack is empty or thin, follow the `context-pack` skill first. If a `jevgate.json` with `context.dir` does not exist, pass `--context-dir DIR` on every command below.
+1. **Check the pack.** Run `jevgate context show --why`. It must list `architecture` (with `R..` rule items); without it the gate returns `gather`. `components` and `decisions` should be there too, but a missing one only warns (`rule:missing_context_area:<area>`) and skips its questions. If the pack is empty or thin, follow the `context-pack` skill first. If a `jevgate.json` with `context.dir` does not exist, pass `--context-dir DIR` on every command below.
 
 2. **Start from the template.** `jevgate ticket init --out ticket.md`. Keep the shape: `# Title`, `## Why`, `## What` (with `###` sub-sections as needed), `## Acceptance` (bullets), `## Context` (bullets), and `### Prior answers` under Context when there are any.
 
@@ -40,6 +40,6 @@ The gate judges a draft against standardized criteria and your project's context
 
 ## Useful flags
 
-`--from-linear DIY-17` judges an existing issue instead of a file (the pack still comes from `--context-dir`). `--all-items` sends every component and decision instead of the lexical top 16. `--threshold GATE=P` overrides one gate for this run only. `--no-cache` re-asks cached requests.
+`--from-linear DIY-17` judges an existing issue instead of a file (the pack still comes from `--context-dir`). `--all-items` sends every component and decision instead of the lexical top 16. `--threshold GATE=P` overrides one gate for this run only. `--no-cache` re-asks cached requests. `--project NAME` scopes the pack to one project's notes plus untagged ones; `--context-json F` uses a prebuilt pack instead of a folder.
 
 If `jevgate` is not on PATH: `python3 -m pip install --user git+https://github.com/kylerhenry/jevgate`

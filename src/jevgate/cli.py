@@ -132,8 +132,12 @@ def build_parser() -> argparse.ArgumentParser:
     for name in REGISTRY:
         try:
             module = importlib.import_module(name)
-        except ImportError:
-            continue
+        except ModuleNotFoundError as exc:
+            # Skip only a registry module that is absent; an import failing
+            # inside a present module is a bug and must surface.
+            if exc.name == name or (exc.name or "").startswith(name + "."):
+                continue
+            raise
         register = getattr(module, "register", None)
         if register is not None:
             register(subparsers)

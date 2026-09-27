@@ -5,7 +5,7 @@
     "unclear_at": "A choice gate reads as 'unclear' (route: gather) when P(unclear options) is at least this.",
     "context": "Where the context pack lives and how it is loaded (see below).",
     "context.dir": "Folder of markdown notes (an Obsidian vault or a subfolder); --context-dir overrides it.",
-    "context.project": "Only notes tagged #jevgate/project/<this> plus untagged notes are loaded; null loads everything.",
+    "context.project": "null (default) loads every note; a name loads that project's notes (tagged #jevgate/project/<name>) plus untagged notes.",
     "context.areas": "Glob mapping for vaults without tags: {\"architecture\": [\"arch/*.md\"], \"components\": [\"components/**/*.md\"]}.",
     "context.follow_links": "How many wikilink hops to follow from a selected note (0 disables).",
     "context.context_budget": "Token cap per area in a request state.",

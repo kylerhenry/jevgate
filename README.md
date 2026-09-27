@@ -237,6 +237,8 @@ jevgate context show --area components --draft draft.md
 
 Flags: `--context-dir DIR` (default: `context.dir`, else `docs/context`), `--context-json F` (a prebuilt pack instead of a folder), `--config F`, `--project NAME`, `--area X` (one area only), `--draft F` (use a ticket draft as the selection query, so you see the items lexical selection would keep), `--why`, `--json`.
 
+Only a missing `architecture` area (or no pack at all) forces the `gather` route; a missing `components`, `decisions`, `data`, `interfaces` or `constraints` area only adds a `rule:missing_context_area:<area>` warning and an entry under `## Optional`, so a project with no ADRs can still reach `ready`.
+
 The first block lists, per area, the notes and items with their token counts and whether each is `[sent]` or `[items only]` (the note's items are sent, its prose is not). The `--why` block that follows says how each note and item was resolved:
 
 ```
@@ -274,11 +276,9 @@ Tags are the supported and tested way to get information in; anything that yield
 
 ## Ticket gate
 
-<!-- verify: ticket/delivery flags -->
-
 ```
-jevgate ticket init [--out ticket.md] [--json]
-jevgate ticket check <draft.md|draft.json> [--context-dir DIR] [--from-linear DIY-17] [--run-dir DIR] [--json] [--no-ai] [--no-cache] [--all-items] [--threshold GATE=P]... [--config F]
+jevgate ticket init [--out ticket.md] [--json] [--force]
+jevgate ticket check (<draft.md|draft.json> | --from-linear DIY-17) [--context-dir DIR | --context-json F] [--project NAME] [--run-dir DIR] [--json] [--no-ai] [--no-cache] [--all-items] [--threshold GATE=P]... [--config F]
 jevgate ticket render <draft> [--out F]
 ```
 
@@ -358,10 +358,8 @@ Pass-type gates default to 0.85; fire-type gates fire at 0.60; a choice reads as
 
 ## Delivery gate
 
-<!-- verify: ticket/delivery flags -->
-
 ```
-jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo .] (--base main [--head HEAD] | --diff-file F) [--test-log F]... [--files PATH[:START-END]]... [--context-dir DIR] [--no-tests-ok] [--run-dir DIR] [--json] [--no-ai] [--no-cache] [--all-items] [--threshold GATE=P]... [--config F]
+jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo .] (--base main [--head HEAD] | --diff-file F) [--test-log F]... [--files PATH[:START-END]]... [--context-dir DIR | --context-json F] [--project NAME] [--no-tests-ok] [--run-dir DIR] [--json] [--no-ai] [--no-cache] [--all-items] [--threshold GATE=P]... [--config F]
 ```
 
 **Inputs.**
@@ -432,7 +430,7 @@ jevgate ticket check --from-linear DIY-17               # judge an existing issu
 jevgate delivery check --from-linear DIY-17 --base main --test-log tests.log
 ```
 
-`--dry-run` prints what would be sent and needs no key. `--from-linear` supplies only the ticket; the context pack still comes from `--context-dir` or `jevgate.json`. Reading Linear comments back as prior answers is not implemented yet.
+`--dry-run` prints what would be sent and needs no key. `--from-linear` supplies only the ticket; the context pack still comes from `--context-dir`/`--context-json` or `jevgate.json`. Reading Linear comments back as prior answers is not implemented yet.
 
 ## Run directories and reports
 

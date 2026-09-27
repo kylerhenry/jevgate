@@ -377,12 +377,13 @@ def test_rounds_delta_and_ledger_in_one_run_dir(canned, vault, tmp_path):
     assert (run.dir / "ledger.json").is_file() or run.ledger() == {"B03"}
 
 
-def test_missing_pack_gathers_required_areas(canned, tmp_path):
+def test_missing_pack_forces_gather_for_architecture_only(canned, tmp_path):
     prime(canned, ticket(), None, Config())
     report = run_check(tmp_path, ticket(), None)
     assert report.outcome == "gather" and report.exit_code == 5
-    assert [g["area"] for g in report.gather] == ["architecture", "components", "decisions"]
-    assert all("for" in g and g["missing"] for g in report.gather)
+    assert [g["area"] for g in report.gather] == ["architecture"]
+    assert [g["area"] for g in report.optional["gather"]] == ["components", "decisions", "data", "interfaces", "constraints"]
+    assert all("for" in g and g["missing"] for g in report.gather + report.optional["gather"])
     assert {f.id for f in report.findings if f.severity == "warn"} >= {"rule:missing_context_area:architecture", "rule:missing_context_area:data"}
     assert canned.calls == 2
     assert set(body_for(canned, "design_unambiguous")["state"]) == {"draft"}
@@ -406,3 +407,16 @@ def test_boundary_crossing_replaces_rules_when_none(canned, tmp_path):
     set_choice(canned, "boundary_crossing", gates, "forbidden", 0.7)
     report = run_check(tmp_path, ticket(), pack)
     assert "jev:boundary_crossing" in finding_ids(report) and report.architecture["boundary"]["choice"] == "forbidden"
+
+
+def test_pack_without_components_or_decisions_can_be_ready(canned, tmp_path):
+    # Only architecture is required; a project with no ADRs still reaches ready, with warnings and optional gathers.
+    pack = ContextPack.from_dict({"architecture": [{"title": "Arch", "text": "Layers only.", "items": [{"id": "L01", "kind": "layer", "text": "Interface layer", "meta": {"name": "Interface layer"}}]}]})
+    prime(canned, ticket(), pack, Config())
+    report = run_check(tmp_path, ticket(), pack)
+    assert report.outcome == "ready" and report.exit_code == 0 and report.gather == []
+    warns = {f.id for f in report.findings if f.severity == "warn"}
+    assert {"rule:missing_context_area:components", "rule:missing_context_area:decisions"} <= warns
+    assert "rule:missing_context_area:architecture" not in warns
+    assert [g["area"] for g in report.optional["gather"]] == ["components", "decisions", "data", "interfaces", "constraints"]
+    assert all(g["note"] is None and g["for"] for g in report.optional["gather"])

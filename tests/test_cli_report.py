@@ -95,3 +95,26 @@ def test_emit(capsys):
     assert cli.emit(report, argparse.Namespace(json=True)) == 2
     assert json.loads(capsys.readouterr().out)["exit_code"] == 2
     assert cli.TICKET_EXITS["gather"] == 5 and cli.DELIVERY_EXITS["accept"] == 0
+
+
+def _fake_module(tmp_path, monkeypatch, name: str, body: str) -> None:
+    (tmp_path / f"{name}.py").write_text(body)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+
+def test_build_parser_skips_only_absent_registry_modules(tmp_path, monkeypatch):
+    # an absent registry module is skipped and the rest still register
+    monkeypatch.setattr(cli, "REGISTRY", ("jevgate_missing_gate_xyz", "jevgate.ticket.cli"))
+    assert cli.build_parser().parse_args(["ticket", "init", "--json"]).command == "ticket"
+
+    # an ImportError raised inside a present module propagates
+    _fake_module(tmp_path, monkeypatch, "jevgate_broken_gate", "raise ImportError('broken inside the module')\n")
+    monkeypatch.setattr(cli, "REGISTRY", ("jevgate_broken_gate",))
+    with pytest.raises(ImportError, match="broken inside"):
+        cli.build_parser()
+
+    # so does a missing dependency of a present module
+    _fake_module(tmp_path, monkeypatch, "jevgate_needy_gate", "import jevgate_no_such_dependency_xyz\n")
+    monkeypatch.setattr(cli, "REGISTRY", ("jevgate_needy_gate",))
+    with pytest.raises(ModuleNotFoundError, match="jevgate_no_such_dependency_xyz"):
+        cli.build_parser()

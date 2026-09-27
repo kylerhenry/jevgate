@@ -45,6 +45,8 @@ Resolution order for a note's area and an item's kind, first hit wins: tags; fro
 
 ## Respond to `gather`
 
+Only a missing `architecture` area (or no pack at all) forces the `gather` route; a missing `components`, `decisions`, `data`, `interfaces` or `constraints` area only adds a `rule:missing_context_area:<area>` warning and an optional gather entry, so a project with no ADRs can still reach `ready`.
+
 A `gather` route or a `rule:missing_context_area:<area>` warning names the area, the note if any, and what is missing:
 
 - "no notes for area X": add `#jevgate/<X>` to the right note, or check `context.dir` and `context.project`.

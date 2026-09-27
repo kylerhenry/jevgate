@@ -27,7 +27,7 @@ from .rubric import OPTIONAL_AREAS, SPLIT_OPTIONS, all_gates, claim_notes
 from .schema import draft_state, normalise_ticket, schema_problems, stated_locations, ticket_query_text
 
 SPECIAL_SLICES = frozenset({"index", "claims"})
-REQUIRED_AREAS = ("architecture", "components", "decisions")
+REQUIRED_AREAS = ("architecture",)  # only these force the gather route; the rest of WARN_AREAS warn and list an optional gather
 WARN_AREAS = ("architecture", "components", "decisions", "data", "interfaces", "constraints")
 AREA_UNLOCKS = {
     "architecture": ("arch_rule", "placement", "parallel_mechanism"),
@@ -98,9 +98,16 @@ def _text_findings(ticket: dict, cfg: Config) -> tuple[list[Finding], dict]:
     return findings, numbers
 
 
-def _missing_areas(pack: ContextPack | None) -> tuple[list[dict], list[Finding]]:
-    """Gather entries for required areas and warn findings for every missing area."""
+def _missing_areas(pack: ContextPack | None) -> tuple[list[dict], list[dict], list[Finding]]:
+    """(forced gathers, optional gathers, warn findings) for the areas the pack lacks.
+
+    Only a missing ``architecture`` area (or no pack at all) forces the gather
+    route, as in the delivery gate; every other missing area yields the
+    ``rule:missing_context_area:<area>`` warn finding plus an optional gather
+    entry, so a project with no ADRs can still reach ``ready``.
+    """
     gathers: list[dict] = []
+    optional: list[dict] = []
     findings: list[Finding] = []
     for area in WARN_AREAS:
         if pack is not None and pack.has(area):
@@ -119,9 +126,9 @@ def _missing_areas(pack: ContextPack | None) -> tuple[list[dict], list[Finding]]
                 hint=AREA_FIX[area],
             )
         )
-        if area in REQUIRED_AREAS:
-            gathers.append({"area": area, "note": None, "item": None, "missing": missing, "for": list(AREA_UNLOCKS[area])})
-    return gathers, findings
+        entry = {"area": area, "note": None, "item": None, "missing": missing, "for": list(AREA_UNLOCKS[area])}
+        (gathers if area in REQUIRED_AREAS else optional).append(entry)
+    return gathers, optional, findings
 
 
 # ----------------------------------------------------------------- state
@@ -556,7 +563,7 @@ def check(ticket: dict, pack: ContextPack | None, client: TypeSafeClient, cfg: C
         run.write(report)
         return report
 
-    gathers, area_findings = _missing_areas(pack)
+    gathers, optional_gathers, area_findings = _missing_areas(pack)
     findings += area_findings
     prior_ids = prior_answer_ids(ticket)
     gates_list = all_gates(ticket, pack, cfg, prior_ids, run.ledger())
@@ -612,9 +619,9 @@ def check(ticket: dict, pack: ContextPack | None, client: TypeSafeClient, cfg: C
     unknown = sum(1 for r in readings.values() if r.status == "unknown")
     asks = select_asks(readings.values(), cfg.max_asks)
     route = _route(split, fails, gathers, asks, unknown > 0)
-    optional = {"asks": [], "gather": []}
+    optional = {"asks": [], "gather": list(optional_gathers)}
     if route == "ready":
-        optional = {"asks": asks, "gather": gathers}
+        optional = {"asks": asks, "gather": optional_gathers + gathers}
         asks, gathers = [], []
     if route == "ask":
         run.add_ledger(a["id"] for a in asks)

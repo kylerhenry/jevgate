@@ -266,9 +266,9 @@ def _evidence_lines(evidence: dict) -> list[str]:
         return []
     lines = []
     context = evidence.get("context") or {}
+    truncated_areas = evidence.get("truncated") if isinstance(evidence.get("truncated"), list) else []
     for area, sent in context.items():
-        names = [s.get("title", s.get("path", "?")) if isinstance(s, dict) else str(s) for s in sent or []]
-        lines.append(f"- context {area}: {', '.join(names) if names else '(nothing)'}")
+        lines.append(_context_line(area, sent, area in truncated_areas))
     files = evidence.get("files") or []
     if files:
         lines.append(f"- files: {', '.join(_evidence_name(f) for f in files)}")
@@ -278,9 +278,36 @@ def _evidence_lines(evidence: dict) -> list[str]:
     if evidence.get("compacted"):
         lines.append("- diff was compacted to fit the state budget")
     for key, value in evidence.items():
-        if key not in ("context", "files", "tests", "compacted") and value not in (None, "", [], {}):
+        if key in ("context", "files", "tests", "compacted") or (key == "truncated" and isinstance(value, list)):
+            continue
+        if value not in (None, "", [], {}):
             lines.append(f"- {key}: {_inline(value)}")
     return lines
+
+
+def _context_line(area: str, sent: Any, truncated: bool = False) -> str:
+    """One line per context area, for both evidence shapes: the delivery gate's
+    ``{notes, items, tokens, truncated}`` and the ticket gate's flat list of note
+    paths and item ids (its truncated areas are listed in ``evidence["truncated"]``)."""
+    token_count = None
+    if isinstance(sent, dict):
+        names = [_context_name(n) for n in sent.get("notes") or []] + [str(i) for i in sent.get("items") or []]
+        token_count = sent.get("tokens")
+        truncated = truncated or bool(sent.get("truncated"))
+    else:
+        names = [_context_name(s) for s in sent or []]
+    line = f"- context {area}: {', '.join(names) if names else '(nothing)'}"
+    if token_count is not None:
+        line += f" [{token_count} tokens]"
+    if truncated:
+        line += " (truncated)"
+    return line
+
+
+def _context_name(item: Any) -> str:
+    if isinstance(item, dict):
+        return str(item.get("title") or item.get("path") or item.get("id") or "?")
+    return str(item)
 
 
 def _evidence_name(item: Any) -> str:

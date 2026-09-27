@@ -113,3 +113,23 @@ def test_from_json_tolerates_missing_and_unknown_keys():
     assert back.findings == [] and back.optional == {"asks": [], "gather": []}
     assert Report.from_json({}).outcome == "uncertain"
     assert Finding.from_dict({"id": "x", "bogus": 1}).id == "x"
+
+
+def test_evidence_context_renders_both_pack_shapes():
+    # delivery: ContextPack.last_evidence shape per area
+    delivery = Report(gate="delivery", outcome="accept", exit_code=0, round=1, evidence={"context": {
+        "architecture": {"notes": ["architecture.md"], "items": ["R01", "R02"], "tokens": 340, "truncated": True},
+        "components": {"notes": [], "items": [], "tokens": 0, "truncated": False},
+    }})
+    md = delivery.to_markdown()
+    assert "- context architecture: architecture.md, R01, R02 [340 tokens] (truncated)" in md
+    assert "- context components: (nothing) [0 tokens]" in md
+    # ticket: merged flat lists per area, truncated areas listed once at the top level
+    ticket = Report(gate="ticket", outcome="ready", exit_code=0, round=1, evidence={
+        "context": {"architecture": ["architecture.md", "R01"], "claims": ["glossary.md"]},
+        "truncated": ["architecture"],
+    })
+    md = ticket.to_markdown()
+    assert "- context architecture: architecture.md, R01 (truncated)" in md
+    assert "- context claims: glossary.md" in md
+    assert "- truncated:" not in md
