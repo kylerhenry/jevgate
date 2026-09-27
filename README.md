@@ -204,10 +204,10 @@ Audit records and outbound email are produced by subscribers on the in-process [
 Side effects become observable in one place; a subscriber failure is logged, not raised.
 ````
 
-**Project scoping.** A vault usually holds several projects. Tag a note `#jevgate/project/<name>` and it is loaded only when `context.project` (or `--project`) is `<name>`. Untagged notes are global and always load. With no project set, project-tagged notes are skipped and `context show --why` says so:
+**Project scoping.** A vault usually holds several projects. Tag a note `#jevgate/project/<name>` and it is loaded only when `context.project` (or `--project`) is `<name>`. Untagged notes are global and always load. With no project set, every note loads, whatever its project tag (right for a single-project vault). Set a project and `context show --why` names the notes it skipped for other projects:
 
 ```
-interfaces.md  area=interfaces via tag:#jevgate/interfaces  ...  skipped: project:ledger (loading project none)
+interfaces.md  area=interfaces via tag:#jevgate/interfaces  ...  skipped: project:ledger (loading project other)
 ```
 
 **Keeping things out.** `#jevgate/ignore` on a note skips the whole note; on a bullet or paragraph it skips that line. Use it for scratch notes and half-written rules, as `architecture.md` above does.
@@ -392,7 +392,7 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 | `thresholds` | per-gate probability thresholds, keyed by family or id (see below) |
 | `unclear_at` | a choice gate reads as `unclear` (route `gather`) when P(unclear options) is at least this; default 0.40 |
 | `context.dir` | folder of markdown notes (an Obsidian vault or a subfolder); `--context-dir` overrides |
-| `context.project` | load only notes tagged `#jevgate/project/<this>` plus untagged notes; `null` loads everything untagged and skips every project-tagged note |
+| `context.project` | load only notes tagged `#jevgate/project/<this>` plus untagged notes; `null` (the default) loads every note |
 | `context.areas` | glob mapping for vaults without tags, e.g. `{"architecture": ["arch/*.md"]}` |
 | `context.follow_links` | wikilink hops to follow from a selected note; 0 disables |
 | `context.context_budget` | token cap per area in a request state (default 8000) |

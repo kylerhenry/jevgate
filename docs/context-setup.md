@@ -154,10 +154,10 @@ What the gates get from it: a draft that says "call the mailer from the close-pe
 
 ### Project scoping
 
-A vault usually holds several projects. Tag a note `#jevgate/project/<name>` and it is loaded only when `context.project` (or `--project`) is `<name>`. Untagged notes are global and always load. With no project set, project-tagged notes are skipped and `context show --why` says so:
+A vault usually holds several projects. Tag a note `#jevgate/project/<name>` and it is loaded only when `context.project` (or `--project`) is `<name>`. Untagged notes are global and always load. With no project set, every note loads, whatever its project tag (right for a single-project vault). Set a project and `context show --why` names the notes it skipped for other projects:
 
 ```
-interfaces.md  area=interfaces via tag:#jevgate/interfaces  ...  skipped: project:ledger (loading project none)
+interfaces.md  area=interfaces via tag:#jevgate/interfaces  ...  skipped: project:ledger (loading project other)
 ```
 
 The fixture vault has `other-project.md`, tagged `#jevgate/architecture` and `#jevgate/project/other`; with `--project other` it contributes rule `R07` and with any other project it is skipped.

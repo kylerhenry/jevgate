@@ -94,7 +94,7 @@ def test_project_scoping(tmp_path):
     skipped = next(n for n in ledger.all_notes() if n.path == "theirs.md")
     assert skipped.ignored and skipped.reason.startswith("project:other")
     nobody = ContextPack.load(tmp_path)
-    assert [n.path for n in nobody.notes("data")] == ["global.md"]
+    assert sorted(n.path for n in nobody.notes("data")) == ["fm.md", "global.md", "mine.md", "theirs.md"]  # no project: everything loads
 
 
 def test_ignore_on_notes_and_lines(tmp_path):
@@ -287,7 +287,8 @@ def test_fixture_vault_shape(vault):
     assert adr.meta["status"] == "accepted" and len(adr.meta["alternatives"]) == 2 and "[[" not in adr.meta["alternatives"][1]
     interfaces = vault.notes("interfaces")[0]
     assert interfaces.project == "ledger"
-    assert "interfaces" not in ContextPack.load(FIXTURES / "vault").areas()
+    assert "interfaces" in ContextPack.load(FIXTURES / "vault").areas()  # no project set: project-tagged notes still load
+    assert "interfaces" not in ContextPack.load(FIXTURES / "vault", project="other").areas()
     assert len(vault.index()) == 17 and vault.index()[0]["area"] == "architecture"
 
 
@@ -369,7 +370,8 @@ def test_context_init_writes_tagged_skeleton_that_loads(tmp_path, capsys):
     assert next(i for i in pack.items("component") if i.id == "acme-cli").meta["path"] == "src/acme/cli.py"
     assert pack.items("decision")[0].meta["status"] == "proposed"
     assert all(n.project == "acme" for n in pack.notes("components"))
-    assert ContextPack.load(out).notes("components") == []  # scoped to acme
+    assert len(ContextPack.load(out).notes("components")) == len(pack.notes("components"))  # no project set: everything loads
+    assert ContextPack.load(out, project="other").notes("components") == []  # another project: acme notes are skipped
 
     (out / "glossary.md").write_text("# Mine\n")
     assert run(["context", "init", "--repo", str(repo), "--out", "docs/context"]) == 0

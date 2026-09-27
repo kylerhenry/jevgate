@@ -398,7 +398,7 @@ class ContextPack:
             ignored, reason = True, "tag:#jevgate/ignore"
         elif str(frontmatter.get("ignore", "")).strip().lower() in ("true", "yes", "1"):
             ignored, reason = True, "frontmatter:ignore"
-        elif project is not None and project != self.project:
+        elif project is not None and self.project is not None and project != self.project:
             ignored, reason = True, f"project:{project} (loading project {self.project or 'none'})"
 
         clean_lines = [_clean_line(raw) for number, raw in enumerate(body_lines, start=1) if number not in ignored_lines]
