@@ -1,7 +1,7 @@
 {
   "_doc": {
     "_": "Copy to jevgate.json in the repository root. Keys starting with '_' are ignored; every other key must be one of those below.",
-    "thresholds": "Per-gate probability thresholds keyed by gate id (ac_testable:2) or family (ac_testable). Defaults: ticket pass gates 0.85, delivery pass gates 0.90, fire gates 0.60 (including the two ambiguity gates design_ambiguous and language_ambiguous, calibrated on the fixtures), level gates 0.70 (readability 0.60).",
+    "thresholds": "Per-gate probability thresholds keyed by gate id (ac_testable:2) or family (ac_testable). Defaults: ticket pass gates 0.85 (ac_testable 0.50, from the fixture sweep), delivery pass gates 0.90 (ac_met 0.85, from the fixture sweep), fire gates 0.60 (including the two ambiguity gates design_ambiguous and language_ambiguous, calibrated on the fixtures), level gates 0.70 (readability 0.60).",
     "unclear_at": "A choice gate reads as 'unclear' (route: gather) when P(unclear options) is at least this. Default 0.50, calibrated on the fixtures.",
     "context": "Where the context pack lives and how it is loaded (see below).",
     "context.dir": "Folder of markdown notes (an Obsidian vault or a subfolder); --context-dir overrides it.",

@@ -200,7 +200,7 @@ def test_rubric_catalog_ids_thresholds_and_data_note(pack: ContextPack):
     assert [g.id for g in change] == ["ac_met:1", "ac_met:2", "ac_proven:1", "ac_proven:2", "scope_creep", "tests_exercise_change"]
     assert [g.id for g in rubric.change_gates(["a"], False, cfg)] == ["ac_met:1", "scope_creep"]
     thresholds = {g.family: g.threshold for g in change}
-    assert thresholds == {"ac_met": 0.90, "ac_proven": 0.90, "scope_creep": 0.60, "tests_exercise_change": 0.90}
+    assert thresholds == {"ac_met": 0.85, "ac_proven": 0.90, "scope_creep": 0.60, "tests_exercise_change": 0.90}
     assert all(g.question.to_api()["instructions"].endswith(rubric.DATA_NOTE) for g in change)
 
     tuned = Config(thresholds={"arch_rule": 0.5, "ac_met:2": 0.7}, unclear_at=0.3)
@@ -208,7 +208,7 @@ def test_rubric_catalog_ids_thresholds_and_data_note(pack: ContextPack):
     assert all(g.threshold == 0.5 for g in gates if g.family == "arch_rule")
     assert all(g.unclear_at == 0.3 for g in gates)
     change = {g.id: g for g in rubric.change_gates(["a", "b"], False, tuned)}
-    assert change["ac_met:1"].threshold == 0.90 and change["ac_met:2"].threshold == 0.7
+    assert change["ac_met:1"].threshold == 0.85 and change["ac_met:2"].threshold == 0.7
 
 
 # ---------------------------------------------------------------------------

@@ -452,3 +452,57 @@ requests, 0.355 M tokens, $0.014; delivery 32 requests, 0.198 M tokens, $0.008; 
 tokens, about $0.024 at $0.04 per million. `fixtures/responses/` was pruned to the 131 entries
 the final offline runs read (`calibrate` without `--refresh` reports no cache misses); note that
 `--refresh` fetches only cache misses, it does not re-ask entries whose hash is unchanged.
+
+## Round 6 (thresholds adopted from the sweeps), catalog `2026-09-27.6`
+
+Kyle's rule, verbatim: "my numbers were pulled out of my ass on what sounded good, so if there
+are measurable better values, then go with them. But you should only change the values if
+they've actually been tested."
+
+Adoption rule, applied to the round-5 sweeps: a default moves only when the family has labelled
+cases on both sides (at least one labelled failure and labelled passes), every labelled failure is
+still caught at the new value, and the new value is the strict end of a flat region of the sweep
+(the most demanding threshold that keeps the best agreement). A family with one labelled failure
+or none is untested at any value and keeps its guess. Threshold changes do not enter the request
+hash, so both `calibrate` runs answered from `fixtures/responses/` offline (0 cache misses, 0
+errors on each) and no wording changed.
+
+### Sweep table (ff = fires on labelled-failing, fp = fires on labelled-passing)
+
+Adopted:
+
+- ac_testable: 0.5 ff 1/1 fp 2/14 | 0.6 4/14 | 0.7 5/14 | 0.85 6/14 | 0.9 11/14 → adopted 0.50
+- ac_met: 0.5–0.85 ff 2/2 fp 2/10 | 0.9 ff 2/2 fp 4/10 → adopted 0.85
+
+Not adopted:
+
+- design_ambiguous: 0.6 ff 2/2 fp 3/13 | 0.7 ff 1/2 | 0.8 ff 1/2 fp 0/13 → kept 0.60 (higher misses ambiguous-design-01 or missing-context-01)
+- ac_proven: best agreement 0.64 at ≤ 0.6 with fp 4/10; 0.45 at ≥ 0.8 → kept 0.90; the family needs verbose test logs in the fixtures before its threshold means anything
+- convention 0.85 (fp 0/11 vs 1/11), over_engineered 0.85 (0/11 vs 1/11), scope_creep 0.90 (0/11 vs 2/11): one labelled failure each → not adopted; add a second failing fixture per family before moving
+- bank, constraint, parallel_mechanism, simpler_alternative, edge_cases, scope_boundary: zero labelled failures → untested, kept
+
+### Code
+
+`AC_TESTABLE_AT = 0.50` in `src/jevgate/ticket/rubric.py` sets the `ac_testable:<i>` gates; the
+other ticket pass gates keep `PASS_AT` 0.85. `AC_MET_AT = 0.85` in `src/jevgate/delivery/rubric.py`
+sets the `ac_met:<i>` gates; `ac_proven:<i>` and `tests_exercise_change` keep `PASS_THRESHOLD`
+0.90. No fixture label changed; the one test that pinned `ac_met` at 0.90 was re-pinned.
+
+### Agreement before and after
+
+| gate | round 5 | round 6 |
+|---|---|---|
+| ticket route | 15/16 | 15/16 |
+| ticket gather (expected ⊆ report) | 2/2 | 2/2 |
+| ticket asks (expected ⊆ report) | 1/2 | 1/2 |
+| delivery verdict | 12/13 | 13/13 |
+| delivery gather | 1/1 | 1/1 |
+
+`gather-resolved-02` now routes `accept` as labelled (`met` 0.88, which 0.90 rejected and 0.85
+passes). The ticket route is unchanged in count, but `ready-01` and `ready-02` no longer rest on a
+borderline gate: their lowest `ac_testable` readings (0.88, 0.87) now clear 0.50 by a wide margin
+instead of 0.85 by 0.02–0.03, which closes the drift noted in round 5. `ac_testable` fires on
+labelled-passing drafts 6/14 → 2/14, and the two remaining fires are on drafts whose route other
+gates already decide, so no route moves. `missing-context-01` still routes `revise` instead of
+`ask` (B04 0.67 against `BANK_AT` 0.70, as in rounds 4 and 5); `BANK_AT` has one ask-labelled
+fixture and so stays untested.

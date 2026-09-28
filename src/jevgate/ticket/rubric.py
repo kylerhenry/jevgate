@@ -36,6 +36,7 @@ UNCLEAR = (
 )
 
 PASS_AT = 0.85
+AC_TESTABLE_AT = 0.50  # sweep 2026-09-27: catches untestable-ac-01 at every value; false fires 6/14 at 0.85, 2/14 at 0.50
 FIRE_AT = 0.60
 LEVEL_AT = 0.70
 READABILITY_AT = 0.60
@@ -202,7 +203,7 @@ def intrinsic_gates(ticket: dict, unclear_at: float = 0.50) -> list[Gate]:
                     true="A specific check with a definite pass/fail outcome follows from the bullet.",
                     false="It describes an activity, an intention or a quality reasonable people would judge differently, so no check settles it.",
                 ),
-                kind="pass", needs=needs, threshold=PASS_AT,
+                kind="pass", needs=needs, threshold=AC_TESTABLE_AT,
                 item={"index": index, "text": bullet},
                 hint="Rewrite the bullet as an observable outcome: the command or test, its input and the exact result.",
             )

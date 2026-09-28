@@ -1,7 +1,7 @@
 """The delivery gate's question catalog: per-file gates and whole-change gates.
 
 Wording is the catalog's, verbatim, with :data:`DATA_NOTE` appended to every
-instruction. Thresholds follow the catalog defaults (pass 0.90, fire 0.60,
+instruction. Thresholds follow the catalog defaults (pass 0.90, ac_met 0.85 after the sweep, fire 0.60,
 level 0.70) and are then overridden from the config by exact id or family.
 """
 
@@ -24,6 +24,7 @@ UNCLEAR_NOTES = (
 )
 
 PASS_THRESHOLD = 0.90
+AC_MET_AT = 0.85  # sweep 2026-09-27: both labelled failures (defect-01, unmet-ac-01) caught at 0.50–0.85; false fires 4/10 at 0.90, 2/10 at 0.85; strict end of the flat region
 FIRE_THRESHOLD = 0.60
 LEVEL_THRESHOLD = 0.70
 CONTRIBUTES_AT = 0.50  # touches_ac:<i> at or above this means the file serves the bullet
@@ -303,7 +304,7 @@ def ac_met_gate(index: int, bullet: str) -> Gate:
             },
         ),
         kind="choice",
-        threshold=PASS_THRESHOLD,
+        threshold=AC_MET_AT,
         pass_options=("met",),
         item={"criterion": index, "text": bullet},
         hint=f"Implement acceptance criterion {index} («{bullet}») in the files it concerns, or amend the ticket if the criterion no longer applies.",
