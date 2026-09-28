@@ -35,7 +35,7 @@ In Claude Code the plugin also exposes `/ticket-gate` and `/delivery-gate`, whic
 
 ## Rules
 
-- Never edit, weaken, skip or delete a test to satisfy the delivery gate. If a test is wrong, say so in the report you hand to the human, with the reason, and leave the gate unpassed.
+- Change a test when the behaviour it checks has changed, and say what changed. The line is whether it still proves what it was written to prove: never leave one proving less to clear a finding, by weakening an assertion, narrowing a case, skipping or deleting. A test that silently stops covering its case is a defect like any other, and a harder one to see. If a test itself is wrong, say so in the report you hand to the human, with the reason, and leave the gate unpassed.
 - Never write a test log by hand or trim one. The gate records the log's hash.
 - Never fabricate a Context bullet. If you did not verify a fact in the notes or the code, it does not go in `## Context`.
 - Do not raise a threshold to get a pass. Thresholds live in `jevgate.json` and belong to the human.

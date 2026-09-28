@@ -8,7 +8,7 @@ description: >
 
 # Delivery gate
 
-The gate reads the ticket's `## Acceptance` bullets back, diffs the change, and asks Jev per file (defects, duplication, over-engineering, edge cases, rules, conventions) and per acceptance bullet (met, proven by a passing test). The test log is evidence. You never edit tests to satisfy the gate.
+The gate reads the ticket's `## Acceptance` bullets back, diffs the change, and asks Jev per file (defects, duplication, over-engineering, edge cases, rules, conventions) and per acceptance bullet (met, proven by a passing test). The test log is evidence. You may update a test when the behaviour it checks changes, but never leave one proving less than it did to satisfy the gate.
 
 ## Procedure
 
@@ -34,7 +34,7 @@ The gate reads the ticket's `## Acceptance` bullets back, diffs the change, and 
 
 ## Never
 
-- Never edit, weaken, mark as skipped or delete a test to make a finding go away. If a test is wrong, say so in the hand-off with the reason and leave the gate unpassed.
+- Change a test when the behaviour it checks has changed, and say what changed. The line is whether it still proves what it was written to prove: never leave one proving less to make a finding go away, by weakening an assertion, narrowing a case, skipping or deleting. A test that silently stops covering its case is a defect like any other, and a harder one to see. If a test itself is wrong, say so in the hand-off with the reason and leave the gate unpassed.
 - Never hand-write or edit a test log.
 - Never widen the ticket's acceptance bullets to match what was built. If the ticket was wrong, that is a new ticket-gate round, with the human.
 - Never raise a threshold with `--threshold` to get an accept.
