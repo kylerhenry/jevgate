@@ -255,6 +255,26 @@ def test_errors_exit_4(scripted, repo, tmp_path, capsys):
     assert "context dir not found" in capsys.readouterr().err
 
 
+def test_change_over_chunk_cap_exits_4(scripted, repo, tmp_path, capsys):
+    # 70 blocks of 12 wide lines; one edit per block gives 70 separate hunks, far more than 8 chunks at a 2000-token diff budget
+    blocks = [f"# section {b:03d} " + "-" * 100 + "\n" + "".join(f"line {b:03d}-{i:02d} " + "x" * 100 + "\n" for i in range(11)) for b in range(70)]
+    (repo / "src" / "wide.py").write_text("".join(blocks))
+    _git(repo, "add", "src/wide.py")
+    _git(repo, "commit", "-q", "-m", "wide")
+    (repo / "src" / "wide.py").write_text("".join(b.replace("line ", "edit ", 1) for b in blocks))
+    (repo / "jevgate.json").write_text(json.dumps({"state_budget": 2000}))
+    log = tmp_path / "pytest.log"
+    log.write_text(PYTEST_OK)
+    code = cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(log)))
+    err = capsys.readouterr().err
+    assert code == 4
+    assert "change too large" in err and " chunks of 2000 tokens" in err and "split the change" in err
+    assert int(err.split("change too large: ")[1].split()[0]) > 8
+    audit = tmp_path / "run" / "requests.jsonl"
+    assert not audit.exists() or audit.read_text() == ""
+    assert not scripted.bodies
+
+
 def test_no_context_pack_warns_and_runs(scripted, repo, tmp_path, capsys):
     log = tmp_path / "pytest.log"
     log.write_text(PYTEST_OK)

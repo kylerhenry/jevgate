@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import json
 
 from jevgate import CATALOG_VERSION, __version__
@@ -47,7 +49,8 @@ def full_report():
         rules={"stats": {"avg_sentence_words": 12}},
         evidence={"context": {"architecture": [{"title": "architecture.md"}], "glossary": []},
                   "files": [{"path": "src/x.py"}, {"path": "big.py", "dropped_reason": "over budget"}],
-                  "tests": [{"path": "pytest.log"}], "compacted": True},
+                  "tests": [{"path": "pytest.log"}], "compacted": True,
+                  "change": {"chunks": 3, "budget": 17271, "tokens": 34408, "sent": 34408, "hunks": 39, "files": 11, "truncated": []}},
         usage={"requests": 3, "cached": 1, "input_tokens": 1200, "output_tokens": 30, "cost_usd": 0.0000504,
                "errors": ["slice-b: TypeSafe HTTP 503"]},
         delta={"resolved": ["jev:why_is_a_problem"], "new": ["jev:arch_rule:R03"], "unchanged": ["jev:design_ambiguous"]},
@@ -75,7 +78,7 @@ def test_markdown_sections_in_order():
     assert "| cache-helper | 0.80 | 0.10 | reuse_missed |" in body
     assert "- context architecture: architecture.md" in body and "- context glossary: (nothing)" in body
     assert "- files: src/x.py, big.py (dropped: over budget)" in body
-    assert "- diff was compacted to fit the state budget" in body
+    assert "- diff: 34408 tokens, 39 hunks, 11 files; sent whole in 3 chunks (budget 17271 each)" in body
     assert "- requests: 3 (1 cached), input tokens 1200, output tokens 30, cost $0.0001" in body
     assert "- error: slice-b: TypeSafe HTTP 503" in body
     assert "- resolved: jev:why_is_a_problem" in body and "- new: jev:arch_rule:R03" in body
@@ -133,3 +136,22 @@ def test_evidence_context_renders_both_pack_shapes():
     assert "- context architecture: architecture.md, R01 (truncated)" in md
     assert "- context claims: glossary.md" in md
     assert "- truncated:" not in md
+
+
+def test_evidence_change_line():
+    def render(change: dict, files: list[dict] | None = None) -> str:
+        return Report(gate="delivery", outcome="accept", exit_code=0, evidence={"files": files or [], "change": change}).to_markdown()
+
+    whole = {"chunks": 3, "budget": 17271, "tokens": 34408, "sent": 34408, "hunks": 39, "files": 11, "truncated": []}
+    assert "- diff: 34408 tokens, 39 hunks, 11 files; sent whole in 3 chunks (budget 17271 each)" in render(whole)
+    cut = [{"path": "remux_library.py", "header": "@@ -812,7 +813,286 @@", "lines_sent": 20, "lines": 286}]
+    lines = render({**whole, "sent": 31000, "truncated": cut}).splitlines()
+    (line,) = [l for l in lines if l.startswith("- diff:")]
+    assert line.startswith("- diff: 34408 tokens, 39 hunks, 11 files; sent in 3 chunks (budget 17271 each)")
+    assert line.endswith("; truncated: remux_library.py @@ -812,7 +813,286 @@ 20 of 286 lines")
+    single = {"chunks": 1, "budget": 20000, "tokens": 1500, "sent": 1500, "hunks": 2, "files": 1, "truncated": []}
+    assert "- diff: 1500 tokens, 2 hunks, 1 files; sent whole in 1 chunk (budget 20000)" in render(single)
+    files = [{"path": "big.py", "truncated": True, "cuts": [{"path": "big.py", "header": "@@ -1,1 +1,401 @@", "lines_sent": 20, "lines": 286}]}]
+    assert "- files: big.py (truncated: 20 of 286 lines)" in render(single, files)
+    src_dir = Path(__file__).resolve().parent.parent / "src"
+    assert not [p for p in src_dir.rglob("*.py") if "diff was compacted" in p.read_text(encoding="utf-8")]

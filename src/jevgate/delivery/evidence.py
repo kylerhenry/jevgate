@@ -299,11 +299,14 @@ def filter_files(
 
 
 # ---------------------------------------------------------------------------
-# Chunking and compaction
+# Chunking
 
 @dataclass
 class Chunk:
-    """A reviewable slice of one file's patch (``index`` is 1-based)."""
+    """A reviewable slice of a patch (``index`` is 1-based).  ``path`` is the
+    file's path for a per-file chunk and ``change`` for a whole-change chunk.
+    ``cuts`` records every hunk that was cut to fit the budget as
+    ``{path, header, lines_sent, lines}``."""
 
     path: str
     index: int
@@ -311,6 +314,7 @@ class Chunk:
     patch: str
     truncated: bool
     tokens: int
+    cuts: list[dict] = field(default_factory=list)
 
 
 def _cut_lines(text: str, budget: int) -> tuple[str, bool]:
@@ -332,6 +336,21 @@ def _cut_lines(text: str, budget: int) -> tuple[str, bool]:
     return "\n".join(kept), True
 
 
+def _cut_hunk(path: str, hunk: Hunk, budget: int) -> tuple[str, dict]:
+    """``hunk`` cut to ``budget`` tokens, plus the record of what was sent."""
+    text, cut = _cut_lines(hunk.text, budget)
+    sent = text.count("\n") - 1 if cut else len(hunk.lines)  # lines after the header, before the marker
+    return text, {"path": path, "header": hunk.header, "lines_sent": max(sent, 0), "lines": len(hunk.lines)}
+
+
+def _cut_patch(path: str, patch: str, budget: int) -> tuple[str, list[dict]]:
+    """A hunkless patch cut to ``budget`` tokens, plus its cut record (if any)."""
+    text, cut = _cut_lines(patch, budget)
+    if not cut:
+        return text, []
+    return text, [{"path": path, "header": "", "lines_sent": text.count("\n"), "lines": patch.count("\n") + 1}]
+
+
 def chunk_file(file: FileDiff, file_budget: int) -> list[Chunk]:
     """Split a file's patch into chunks of at most ``file_budget`` tokens.
 
@@ -342,10 +361,10 @@ def chunk_file(file: FileDiff, file_budget: int) -> list[Chunk]:
         return [Chunk(file.path, 1, 1, file.patch, False, file.tokens)]
     header = file.header
     if not file.hunks:
-        text, cut = _cut_lines(file.patch, file_budget)
-        return [Chunk(file.path, 1, 1, text, cut, tokens(text, "code"))]
+        text, cuts = _cut_patch(file.path, file.patch, file_budget)
+        return [Chunk(file.path, 1, 1, text, bool(cuts), tokens(text, "code"), cuts)]
     header_tokens = tokens(header + "\n", "code")
-    groups: list[tuple[list[str], bool]] = []
+    groups: list[tuple[list[str], list[dict]]] = []
     current: list[str] = []
     current_tokens = 0
     for hunk in file.hunks:
@@ -353,49 +372,127 @@ def chunk_file(file: FileDiff, file_budget: int) -> list[Chunk]:
         cost = tokens(text + "\n", "code")
         if header_tokens + cost > file_budget:
             if current:
-                groups.append((current, False))
+                groups.append((current, []))
                 current, current_tokens = [], 0
-            cut, _ = _cut_lines(text, file_budget - header_tokens)
-            groups.append(([cut], True))
+            cut, record = _cut_hunk(file.path, hunk, file_budget - header_tokens)
+            groups.append(([cut], [record]))
             continue
         if current and header_tokens + current_tokens + cost > file_budget:
-            groups.append((current, False))
+            groups.append((current, []))
             current, current_tokens = [], 0
         current.append(text)
         current_tokens += cost
     if current:
-        groups.append((current, False))
+        groups.append((current, []))
     chunks: list[Chunk] = []
-    for i, (texts, truncated) in enumerate(groups, 1):
+    for i, (texts, cuts) in enumerate(groups, 1):
         patch = "\n".join([header, *texts])
-        chunks.append(Chunk(file.path, i, len(groups), patch, truncated, tokens(patch, "code")))
+        chunks.append(Chunk(file.path, i, len(groups), patch, bool(cuts), tokens(patch, "code"), cuts))
     return chunks
 
 
-def _compact_file(file: FileDiff, keep: int) -> str:
-    parts = [line for line in file.header.split("\n") if not line.startswith("index ")]
-    for hunk in file.hunks:
-        parts.append(hunk.header)
-        if keep:
-            parts.extend(hunk.lines[:keep])
-            more = len(hunk.lines) - keep
-            if more > 0:
-                parts.append(f"[... {more} more lines ...]")
+@dataclass
+class _Group:
+    """Hunks of one whole-change chunk, per file in diff order."""
+
+    files: dict[str, tuple[str, list[str]]] = field(default_factory=dict)  # path -> (header, hunk texts)
+    tokens: int = 0
+    cuts: list[dict] = field(default_factory=list)
+
+    def add(self, path: str, header: str, header_tokens: int, text: str | None, cost: int) -> None:
+        if path not in self.files:
+            self.files[path] = (header, [])
+            self.tokens += header_tokens
+        if text is not None:
+            self.files[path][1].append(text)
+            self.tokens += cost
+
+    @property
+    def patch(self) -> str:
+        return "\n".join("\n".join([header, *texts]) for header, texts in self.files.values())
+
+
+def chunk_change(files: list[FileDiff], budget: int) -> list[Chunk]:
+    """Split the whole diff into chunks of at most ``budget`` tokens, tagged
+    ``change``: one chunk holding every patch when they fit, else whole hunks
+    grouped greedily across files in diff order, each chunk repeating the
+    header of every file it touches.  A hunk that alone exceeds ``budget``
+    becomes a truncated chunk, cut as :func:`chunk_file` cuts it."""
+    full = "\n".join(file.patch for file in files)
+    full_tokens = tokens(full, "code")
+    if full_tokens <= budget:
+        return [Chunk("change", 1, 1, full, False, full_tokens)]
+    groups: list[_Group] = []
+    current = _Group()
+
+    def flush() -> None:
+        nonlocal current
+        if current.tokens:
+            groups.append(current)
+            current = _Group()
+
+    for file in files:
+        header_tokens = tokens(file.header + "\n", "code")
+        if not file.hunks:  # a hunkless patch (binary, mode or rename only) travels whole
+            cost = tokens(file.patch + "\n", "code")
+            if cost > budget:
+                flush()
+                text, cuts = _cut_patch(file.path, file.patch, budget)
+                current.add(file.path, text, tokens(text + "\n", "code"), None, 0)
+                current.cuts.extend(cuts)
+                flush()
+                continue
+            if current.tokens and current.tokens + cost > budget:
+                flush()
+            current.add(file.path, file.patch, cost, None, 0)
+            continue
+        for hunk in file.hunks:
+            cost = tokens(hunk.text + "\n", "code")
+            if header_tokens + cost > budget:
+                flush()
+                text, record = _cut_hunk(file.path, hunk, budget - header_tokens)
+                current.add(file.path, file.header, header_tokens, text, tokens(text + "\n", "code"))
+                current.cuts.append(record)
+                flush()
+                continue
+            added = cost + (0 if file.path in current.files else header_tokens)
+            if current.tokens and current.tokens + added > budget:
+                flush()
+            current.add(file.path, file.header, header_tokens, hunk.text, cost)
+    flush()
+    return [
+        Chunk("change", i, len(groups), group.patch, bool(group.cuts), tokens(group.patch, "code"), group.cuts)
+        for i, group in enumerate(groups, 1)
+    ]
+
+
+def outline_diff(files: list[FileDiff]) -> str:
+    """The headers-only view of the whole diff: each file's header (without
+    ``index`` lines) and every hunk header followed by its body line count."""
+    parts: list[str] = []
+    for file in files:
+        parts.extend(line for line in file.header.split("\n") if not line.startswith("index "))
+        parts.extend(f"{hunk.header} [{len(hunk.lines)} lines]" for hunk in file.hunks)
     return "\n".join(parts)
 
 
-def compact_diff(files: list[FileDiff], budget: int) -> tuple[str, bool]:
-    """The whole diff when it fits ``budget`` tokens, else a compacted view:
-    file headers plus each hunk's header and first 20 lines; then headers
-    only; finally a path list.  Returns ``(text, compacted)``."""
+def change_summary(files: list[FileDiff], chunks: list[Chunk], budget: int) -> dict:
+    """The report's ``evidence.change`` fragment: how the whole-change diff was
+    sent.  ``sent`` is ``tokens`` less the tokens of the cut lines, so the two
+    are equal exactly when nothing was truncated."""
     full = "\n".join(file.patch for file in files)
-    if tokens(full, "code") <= budget:
-        return full, False
-    for keep in (20, 0):
-        text = "\n".join(_compact_file(file, keep) for file in files)
-        if tokens(text, "code") <= budget:
-            return text, True
-    return "\n".join(f"{file.path} ({file.status})" for file in files), True
+    full_tokens = tokens(full, "code")
+    cuts = [cut for chunk in chunks for cut in chunk.cuts]
+    hunks = {(file.path, hunk.header): hunk for file in files for hunk in file.hunks}
+    omitted = 0
+    for cut in cuts:
+        hunk = hunks.get((cut["path"], cut["header"]))
+        if hunk is not None:
+            omitted += tokens("\n".join(hunk.lines[cut["lines_sent"]:]) + "\n", "code")
+    return {
+        "chunks": len(chunks), "budget": budget, "tokens": full_tokens, "sent": max(full_tokens - omitted, 0),
+        "hunks": sum(len(file.hunks) for file in files), "files": len(files), "truncated": cuts,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1036,18 +1133,22 @@ def assert_budget(state: dict, questions: dict, *, state_limit: int = 30000, req
 
 def evidence_summary(
     kept: list[FileDiff], dropped: list[dict], chunks_by_path: dict[str, list[Chunk]],
-    logs: list[TestLog], compacted: bool,
+    logs: list[TestLog], change: dict | None = None,
 ) -> dict:
     """The report's ``evidence`` fragment: what was reviewed, what was
-    dropped and why, which test logs were read, and whether the diff had
-    to be compacted."""
+    dropped and why, which test logs were read, and how the whole-change diff
+    was sent (``change``, from :func:`change_summary`).  ``compacted`` is true
+    when that diff did not go whole in one chunk."""
     files = []
     for file in kept:
         chunks = chunks_by_path.get(file.path, [])
-        files.append({
+        entry = {
             "path": file.path, "status": file.status, "tokens": file.tokens,
             "chunks": len(chunks), "truncated": any(c.truncated for c in chunks),
-        })
+        }
+        if entry["truncated"]:
+            entry["cuts"] = [cut for c in chunks for cut in c.cuts]
+        files.append(entry)
     for record in dropped:
         files.append({
             "path": record["path"], "status": record.get("status", "modified"), "tokens": record.get("tokens", 0),
@@ -1058,4 +1159,8 @@ def evidence_summary(
          "skipped": log.skipped, "errors": log.errors, "names_count": len(log.names), "sha256": log.sha256}
         for log in logs
     ]
-    return {"files": files, "tests": tests, "compacted": compacted}
+    compacted = bool(change) and (change["chunks"] > 1 or bool(change["truncated"]))
+    out = {"files": files, "tests": tests, "compacted": compacted}
+    if change is not None:
+        out["change"] = change
+    return out

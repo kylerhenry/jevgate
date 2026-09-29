@@ -354,3 +354,22 @@ def test_delivery_cache_only_degrades_to_cache_misses(canned, tmp_path, capsys):
     verdicts = {r["case"]: r["got"] for r in result["outcomes"]["rows"]}
     assert verdicts["failing-tests-01"] == "revise" and verdicts["accept-01"] == "uncertain"
     assert cli.main(argv[:-1]) == 0 and "## Cache misses (" in capsys.readouterr().out
+
+
+def test_delivery_fixtures_agree_from_cached_responses(monkeypatch, tmp_path):
+    """The 13 delivery fixtures replay from ``fixtures/responses`` alone (no
+    network, every request a cache hit) and their verdicts all agree with their
+    labels: the round-6 ``agreement: 13/13`` in docs/calibration.md, kept live
+    so a change to the request state (which would miss the cache) is caught."""
+    monkeypatch.setenv("TYPESAFE_API_KEY", TEST_KEY)
+    monkeypatch.setattr(client_module, "call_api", lambda *a, **k: pytest.fail("calibrate must not call the API"))
+    args = SimpleNamespace(config=None, context_dir=None, project=None, responses=None, refresh=False,
+                           gate=None, thresholds=None, unclear_at=None)
+    result = cal.calibrate("delivery", FIXTURES / "deliveries", args)
+    outcomes = result["outcomes"]
+    assert (outcomes["agree"], outcomes["n"]) == (13, 13), [r for r in outcomes["rows"] if not r["ok"]]
+    assert result["cache_misses"] == [] and result["errors"] == []
+    assert "agreement: 13/13" in cal.render(result)
+    out = tmp_path / "calib-delivery.md"
+    assert cli.main(["calibrate", "delivery", str(FIXTURES / "deliveries"), "--out", str(out)]) == 0
+    assert "agreement: 13/13" in out.read_text(encoding="utf-8")

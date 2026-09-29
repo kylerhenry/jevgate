@@ -6,8 +6,10 @@ Policy (never a holistic question):
 * rules first — ``diff_empty`` and ``tests_failing`` fail without an API
   call; ``no_test_logs``, ``unreviewed_file``, ``untracked_files`` and
   ``missing_context_area`` warn;
-* one request per reviewable chunk of each kept file, one for the whole
-  change; readings per chunk, worst chunk wins, worst file wins per gate;
+* one request per reviewable chunk of each kept file, and one per chunk of
+  the whole change (whole hunks grouped under the state budget, never
+  compacted); readings per chunk, worst chunk wins, worst file wins per
+  file gate; change gates combine per family (``_read_change_jobs``);
 * verdict: ``revise`` on any fail, else ``gather`` when a reading is
   unclear, else ``uncertain`` when a reading is unknown, else ``accept``
   when proven (or ``--no-tests-ok``), else ``unproven``.
@@ -37,13 +39,15 @@ from .evidence import (
     FileDiff,
     TestLog,
     assert_budget,
+    change_summary,
+    chunk_change,
     chunk_file,
-    compact_diff,
     evidence_summary,
     files_after_state,
     filter_files,
     git_diff,
     ignored,
+    outline_diff,
     parse_diff,
     parse_test_log,
     read_excerpt,
@@ -57,6 +61,7 @@ WARNED_DROP_REASONS = ("too_large", "generated")
 SKIPPED_REASONS = ("deleted", "not_source")  # no per-file questions, but still in the whole-change diff
 _STATUS_RANK = {"fail": 4, "unclear": 3, "unknown": 2, "pass": 1, "na": 0}
 _MIN_DIFF_BUDGET = 2000
+_MAX_CHANGE_CHUNKS = 8  # more means the diff is judged in slivers; exit 4 instead
 TICKET_KEYS = ("title", "why", "what")
 
 
@@ -342,8 +347,30 @@ def _file_jobs(inputs: DeliveryInputs, kept: list[FileDiff], all_paths: list[str
     return jobs
 
 
-def change_state(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dict], cfg: Config) -> tuple[dict, bool]:
-    """The whole-change state ``{ticket, diff, files_after, tests}`` within ``state_budget``."""
+def _change_tag(chunk: Chunk) -> str:
+    """``change`` for a diff that went whole in one request, else ``change#<i>``."""
+    return "change" if chunk.total == 1 and not chunk.truncated else f"change#{chunk.index}"
+
+
+@dataclass
+class ChangePlan:
+    """The whole-change states, one per chunk, with the diff budget they were cut to."""
+
+    states: list[tuple[dict, Chunk]]
+    budget: int
+    fixed: int
+
+
+def plan_change(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dict], cfg: Config) -> ChangePlan:
+    """Build the whole-change states ``{ticket, diff, files_after, tests}``.
+
+    The fixed part (ticket, excerpts, tests) is sized first; the diff gets
+    ``state_budget`` less that, floored at ``_MIN_DIFF_BUDGET``.  A diff that
+    fits goes whole in one state, byte-identical to a run before chunking
+    existed.  A larger diff is split by :func:`chunk_change` at hunk
+    boundaries, every chunk carrying ``chunk`` and a ``diff_outline`` of the
+    whole diff; past ``_MAX_CHANGE_CHUNKS`` chunks :class:`EvidenceError` is
+    raised before any request."""
     ticket = _ticket_state(inputs.ticket)
     if inputs.logs:
         tests = tests_state(inputs.logs, cfg.tests_budget)
@@ -351,13 +378,57 @@ def change_state(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dic
         tests = {"tool": "none", "summary": "no test output was supplied"}
     files_after = files_after_state(inputs.files_after, cfg.file_budget) if inputs.files_after else []
     fixed = tokens(json.dumps({"ticket": ticket, "files_after": files_after, "tests": tests}, ensure_ascii=False), "code")
-    diff_budget = max(cfg.state_budget - fixed, _MIN_DIFF_BUDGET)
-    if kept:
-        diff, compacted = compact_diff(kept, diff_budget)
-    else:
+    budget = max(cfg.state_budget - fixed, _MIN_DIFF_BUDGET)
+
+    def state(diff: str) -> dict:
+        return {"ticket": ticket, "diff": diff, "files_after": files_after, "tests": tests}
+
+    if not kept:
         diff = "\n".join(f"{d['path']} ({d['status']}, not reviewed: {d['dropped_reason']})" for d in dropped) or "(empty)"
-        compacted = False
-    return {"ticket": ticket, "diff": diff, "files_after": files_after, "tests": tests}, compacted
+        return ChangePlan([(state(diff), Chunk("change", 1, 1, diff, False, tokens(diff, "code")))], budget, fixed)
+    chunks = chunk_change(kept, budget)
+    if len(chunks) == 1 and not chunks[0].truncated:
+        return ChangePlan([(state(chunks[0].patch), chunks[0])], budget, fixed)
+    outline = outline_diff(kept)
+    chunks = chunk_change(kept, max(budget - tokens(outline + "\n", "code"), 1))
+    if len(chunks) > _MAX_CHANGE_CHUNKS:
+        full_tokens = tokens("\n".join(file.patch for file in kept), "code")
+        raise EvidenceError(
+            f"change too large: {len(chunks)} chunks of {budget} tokens ({full_tokens} diff tokens, {fixed} fixed); "
+            "split the change or supply fewer --files"
+        )
+    states: list[tuple[dict, Chunk]] = []
+    for chunk in chunks:
+        view = state(chunk.patch)
+        view["chunk"] = {"index": chunk.index, "total": chunk.total, "truncated": chunk.truncated}
+        view["diff_outline"] = outline
+        states.append((view, chunk))
+    return ChangePlan(states, budget, fixed)
+
+
+def change_state(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dict], cfg: Config) -> list[tuple[dict, Chunk]]:
+    """The whole-change states within ``state_budget``, one per chunk (see :func:`plan_change`)."""
+    return plan_change(inputs, kept, dropped, cfg).states
+
+
+@dataclass
+class _ChangeJob:
+    chunk: Chunk
+    gates: list[Gate]
+    job: Job
+
+
+def _change_jobs(plan: ChangePlan, gates: list[Gate]) -> list[_ChangeJob]:
+    """One job per change chunk.  Every chunk gets the change gates except the
+    proof gates that read only the tests fragment (``ac_proven``), which are
+    asked once, in the first chunk."""
+    jobs: list[_ChangeJob] = []
+    for state, chunk in plan.states:
+        asked = gates if chunk.index == 1 else [g for g in gates if g.family != "ac_proven"]
+        questions = to_questions(asked)
+        assert_budget(state, questions)
+        jobs.append(_ChangeJob(chunk, asked, Job(_change_tag(chunk), state, questions)))
+    return jobs
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +451,7 @@ class _FileReading:
     gate: Gate
     path: str
     chunk: int
+    partial: bool = False  # the reading comes from a truncated chunk
 
 
 def _read_file_jobs(jobs: list[_FileJob], results: dict[str, dict]) -> dict[str, dict[str, _FileReading]]:
@@ -392,7 +464,7 @@ def _read_file_jobs(jobs: list[_FileJob], results: dict[str, dict]) -> dict[str,
             reading = read(gate, answers.get(gate.id))
             current = slot.get(gate.id)
             if current is None or worse(current.reading, reading) is reading:
-                slot[gate.id] = _FileReading(reading, gate, item.file.path, item.chunk.index)
+                slot[gate.id] = _FileReading(reading, gate, item.file.path, item.chunk.index, item.chunk.truncated)
     return by_file
 
 
@@ -404,6 +476,62 @@ def _worst_across_files(by_file: dict[str, dict[str, _FileReading]]) -> dict[str
             if current is None or worse(current.reading, entry.reading) is entry.reading:
                 worst[gate_id] = entry
     return worst
+
+
+@dataclass
+class _ChangeReading:
+    """A change gate's combined reading across chunks: the deciding chunk,
+    whether it was truncated, and every chunk's reading."""
+
+    reading: Reading
+    gate: Gate
+    chunk: int
+    partial: bool
+    per_chunk: dict[int, tuple[Reading, bool]]
+
+
+def _better_of(gate: Gate, a: tuple[int, Reading, bool], b: tuple[int, Reading, bool]) -> tuple[int, Reading, bool]:
+    """Combine two chunks' readings of one change gate.  ``ac_met`` is met when
+    any chunk shows it met (a chunk without the bullet's code answers unclear),
+    so a passing chunk wins and the higher P(met) breaks ties; every other
+    family takes the worst reading, as file gates do."""
+    if gate.family == "ac_met":
+        a_pass, b_pass = a[1].status == "pass", b[1].status == "pass"
+        if a_pass and b_pass:
+            return a if (a[1].p or 0.0) >= (b[1].p or 0.0) else b
+        if a_pass or b_pass:
+            return a if a_pass else b
+    return a if worse(a[1], b[1]) is a[1] else b
+
+
+def _read_change_jobs(gates: list[Gate], jobs: list[_ChangeJob], results: dict[str, dict]) -> dict[str, _ChangeReading]:
+    """Combined reading per change gate across the chunks it was asked in."""
+    out: dict[str, _ChangeReading] = {}
+    for gate in gates:
+        entries: list[tuple[int, Reading, bool]] = []
+        for item in jobs:
+            if gate.id not in item.job.questions:
+                continue
+            answers = results.get(item.job.tag) or {}
+            entries.append((item.chunk.index, read(gate, answers.get(gate.id)), item.chunk.truncated))
+        if not entries:
+            entries = [(1, read(gate, None), False)]
+        best = entries[0]
+        for entry in entries[1:]:
+            best = _better_of(gate, best, entry)
+        out[gate.id] = _ChangeReading(best[1], gate, best[0], best[2], {i: (r, t) for i, r, t in entries})
+    return out
+
+
+def _truncation_finding(tag: str, chunk: Chunk) -> Finding:
+    """A ``warn`` that names what a truncated chunk did not show the model."""
+    parts = [f"{cut['path']} {cut['header']}".strip() + f": {cut['lines_sent']} of {cut['lines']} lines sent" for cut in chunk.cuts]
+    location = {"chunk": chunk.index} if chunk.path == "change" else {"file": chunk.path, "chunk": chunk.index}
+    return Finding(
+        id=f"rule:evidence_truncated:{tag}", source="rule", severity="warn", gate="evidence_truncated", location=location,
+        message="The model saw only part of this chunk (" + "; ".join(parts) + "); its readings are partial.",
+        hint="Split the hunk into smaller commits or pass --files for the code that was cut; a pass read on a partial chunk is not proof.",
+    )
 
 
 def contributing_files(by_file: dict[str, dict[str, _FileReading]], index: int) -> list[str]:
@@ -498,16 +626,19 @@ def _ac_location(gate: Gate, by_file: dict[str, dict[str, _FileReading]]) -> dic
     return {"criterion": index, "text": gate.item["text"], "files": contributing_files(by_file, index)}
 
 
-def _change_findings(gates: list[Gate], readings: dict[str, Reading],
-                     by_file: dict[str, dict[str, _FileReading]]) -> tuple[list[Finding], list[dict]]:
+def _change_findings(gates: list[Gate], change: dict[str, _ChangeReading],
+                     by_file: dict[str, dict[str, _FileReading]], chunked: bool = False) -> tuple[list[Finding], list[dict]]:
     findings: list[Finding] = []
     gathers: list[dict] = []
     for gate in gates:
-        reading = readings[gate.id]
+        entry = change[gate.id]
+        reading = entry.reading
         family = gate.family
         if reading.status in ("pass", "na", "unknown"):
             continue
         location = _ac_location(gate, by_file) if family in ("ac_met", "ac_proven") else {}
+        if chunked:
+            location = {**location, "chunk": entry.chunk}
         base = dict(id=f"jev:{gate.id}", source="jev", gate=family, p=reading.p, threshold=reading.threshold,
                     borderline=reading.borderline, location=location, hint=gate.hint)
         if family in rubric.PROOF_FAMILIES:
@@ -541,16 +672,22 @@ def _change_findings(gates: list[Gate], readings: dict[str, Reading],
 
 
 def _readings_dict(worst: dict[str, _FileReading], by_file: dict[str, dict[str, _FileReading]],
-                   change: dict[str, Reading]) -> dict[str, dict]:
+                   change: dict[str, _ChangeReading]) -> dict[str, dict]:
+    """Readings for the report.  Every reading carries ``partial`` (it came
+    from a truncated chunk); file gates add the worst file and chunk plus
+    ``per_file``; change gates add the deciding chunk plus ``per_chunk``."""
     out: dict[str, dict] = {}
     for gate_id, entry in worst.items():
         per_file = {
-            path: {"status": r[gate_id].reading.status, "p": r[gate_id].reading.p, "chunk": r[gate_id].chunk}
+            path: {"status": r[gate_id].reading.status, "p": r[gate_id].reading.p, "chunk": r[gate_id].chunk,
+                   "partial": r[gate_id].partial}
             for path, r in by_file.items() if gate_id in r
         }
-        out[gate_id] = {**entry.reading.to_dict(), "file": entry.path, "chunk": entry.chunk, "per_file": per_file}
-    for gate_id, reading in change.items():
-        out[gate_id] = reading.to_dict()
+        out[gate_id] = {**entry.reading.to_dict(), "file": entry.path, "chunk": entry.chunk, "partial": entry.partial,
+                        "per_file": per_file}
+    for gate_id, entry in change.items():
+        per_chunk = {str(i): {"status": r.status, "p": r.p, "partial": partial} for i, (r, partial) in entry.per_chunk.items()}
+        out[gate_id] = {**entry.reading.to_dict(), "chunk": entry.chunk, "partial": entry.partial, "per_chunk": per_chunk}
     return out
 
 
@@ -591,38 +728,41 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
     chunks = {file.path: chunk_file(file, cfg.file_budget) for file in reviewed}
     gathers: list[dict] = []
     readings: dict[str, dict] = {}
-    compacted = False
+    change_evidence: dict | None = None
     unknown = False
     proven = False
     file_jobs: list[_FileJob] = []
     stats = {"files": len(reviewed), "skipped": len(skipped), "dropped": len(dropped),
-             "chunks": sum(len(c) for c in chunks.values()), "requests": 0}
+             "chunks": sum(len(c) for c in chunks.values()), "change_chunks": 0, "requests": 0}
+    findings += [_truncation_finding(_chunk_tag(path, c.index), c) for path, cs in chunks.items() for c in cs if c.truncated]
 
     if not rule_fail:
         all_paths = [file.path for file in files]
         file_jobs = _file_jobs(inputs, reviewed, all_paths, chunks, pack, cfg)
-        state, compacted = change_state(inputs, kept, dropped, cfg)
+        plan = plan_change(inputs, kept, dropped, cfg)
         gates = rubric.change_gates(acceptance, bool(inputs.logs), cfg)
-        questions = to_questions(gates)
-        assert_budget(state, questions)
-        jobs = [item.job for item in file_jobs] + [Job("change", state, questions)]
+        change_jobs = _change_jobs(plan, gates)
+        jobs = [item.job for item in file_jobs] + [item.job for item in change_jobs]
         stats["requests"] = len(jobs)
+        stats["change_chunks"] = len(change_jobs)
         results = client.ask_many(jobs)
 
         by_file = _read_file_jobs(file_jobs, results)
         worst = _worst_across_files(by_file)
-        change_answers = results.get("change") or {}
-        change = {gate.id: read(gate, change_answers.get(gate.id)) for gate in gates}
+        change = _read_change_jobs(gates, change_jobs, results)
+        chunked = any(item.chunk.total > 1 or item.chunk.truncated for item in change_jobs)
         file_findings, file_gathers = _file_findings(by_file)
-        change_findings, change_gathers = _change_findings(gates, change, by_file)
+        change_findings, change_gathers = _change_findings(gates, change, by_file, chunked)
         findings += file_findings + change_findings
+        findings += [_truncation_finding(item.job.tag, item.chunk) for item in change_jobs if item.chunk.truncated]
         gathers = file_gathers + change_gathers
         readings = _readings_dict(worst, by_file, change)
         unknown = any(e.reading.status == "unknown" for r in by_file.values() for e in r.values()) or any(
-            r.status == "unknown" for r in change.values()
+            e.reading.status == "unknown" for e in change.values()
         )
-        proof = [change[g.id] for g in gates if g.family in rubric.PROOF_FAMILIES]
+        proof = [change[g.id].reading for g in gates if g.family in rubric.PROOF_FAMILIES]
         proven = bool(inputs.logs) and bool(acceptance) and bool(proof) and all(r.status == "pass" for r in proof)
+        change_evidence = change_summary(kept, [item.chunk for item in change_jobs], plan.budget)
 
     fails = any(f.severity == "fail" for f in findings)
     if fails:
@@ -636,7 +776,7 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
     else:
         verdict = "unproven"
 
-    evidence = evidence_summary(reviewed, skipped + dropped, chunks, inputs.logs, compacted)
+    evidence = evidence_summary(reviewed, skipped + dropped, chunks, inputs.logs, change_evidence)
     evidence["context"] = _context_evidence(file_jobs, pack)
     if inputs.files_after:
         evidence["files_after"] = [{"path": e.get("path"), "range": e.get("range")} for e in inputs.files_after]
@@ -665,6 +805,7 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
 
 __all__ = [
     "DeliveryError", "DeliveryInputs", "build_inputs", "normalise_ticket", "check",
-    "rule_findings", "missing_area_gathers", "split_reviewable", "file_state", "change_state", "worse", "contributing_files",
+    "rule_findings", "missing_area_gathers", "split_reviewable", "file_state", "change_state", "plan_change", "ChangePlan",
+    "worse", "contributing_files",
     "EvidenceError",
 ]

@@ -1,5 +1,5 @@
-"""Delivery evidence: diff parsing, filtering, chunking, compaction, test
-logs, excerpts, budgets and the delivery input schema.  No network."""
+"""Delivery evidence: diff parsing, filtering, per-file and whole-change
+chunking, test logs, excerpts, budgets and the delivery input schema.  No network."""
 
 from __future__ import annotations
 
@@ -180,27 +180,73 @@ def test_chunk_mixed_oversized_and_small_hunks():
 
 
 # ---------------------------------------------------------------------------
-# compact_diff
+# chunk_change / outline_diff / change_summary
 
 
-def test_compact_diff_levels():
-    files = ev.parse_diff(make_diff("a.py", [30]) + make_diff("b.py", [5]))
+def test_chunk_change_single_when_within_budget():
+    files = ev.parse_diff(make_diff("a.py", [5]) + make_diff("b.py", [5]))
     full = "\n".join(f.patch for f in files)
-    assert ev.compact_diff(files, tokens(full, "code")) == (full, False)
+    (chunk,) = ev.chunk_change(files, tokens(full, "code"))
+    assert (chunk.path, chunk.index, chunk.total, chunk.truncated, chunk.patch, chunk.cuts) == ("change", 1, 1, False, full, [])
+    assert ev.change_summary(files, [chunk], 500) == {
+        "chunks": 1, "budget": 500, "tokens": tokens(full, "code"), "sent": tokens(full, "code"),
+        "hunks": 2, "files": 2, "truncated": [],
+    }
 
-    text, compacted = ev.compact_diff(files, tokens(full, "code") - 1)
-    assert compacted and "[... 11 more lines ...]" in text  # 31 body lines, 20 kept
-    a_part, b_part = text.split("diff --git a/b.py b/b.py")
-    assert a_part.count("+00-") == 19 and " context" in a_part  # 20 kept lines: context + 19 added
-    assert b_part.count("+00-") == 5 and "more lines" not in b_part
-    assert text.startswith("diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@ ")
 
-    headers_only, compacted = ev.compact_diff(files, tokens(text, "code") - 1)
-    assert compacted and "@@ -1,1 +1,31 @@" in headers_only and "+00-" not in headers_only
-    assert "diff --git a/b.py b/b.py" in headers_only
+def test_chunk_change_groups_whole_hunks_across_files():
+    files = ev.parse_diff(make_diff("a.py", [10, 10, 10]) + make_diff("b.py", [10, 10]))
+    hunk_cost = tokens(files[0].hunks[0].text + "\n", "code")
+    header_cost = tokens(files[0].header + "\n", "code")
+    budget = header_cost + 2 * hunk_cost + 2  # two hunks under one header fit, three do not
+    chunks = ev.chunk_change(files, budget)
+    assert [c.index for c in chunks] == [1, 2, 3] and all(c.path == "change" and c.total == 3 for c in chunks)
+    assert [c.patch.count("@@ -") for c in chunks] == [2, 1, 2]  # a:h1+h2 | a:h3 (b's header would not fit) | b:h1+h2
+    assert all(c.patch.startswith("diff --git a/") and not c.truncated and c.tokens <= budget for c in chunks)
+    assert chunks[1].patch.startswith("diff --git a/a.py") and chunks[2].patch.startswith("diff --git a/b.py")
+    joined = "\n".join(c.patch for c in chunks)
+    assert joined.count("+00-000-") == 2 and joined.count("+02-000-") == 1  # every hunk exactly once
+    assert joined.count("diff --git a/a.py") == 2 and joined.count("diff --git a/b.py") == 1
 
-    listing, compacted = ev.compact_diff(files, 5)
-    assert compacted and listing == "a.py (modified)\nb.py (modified)"
+
+def test_chunk_change_cuts_an_oversized_hunk_and_records_it():
+    files = ev.parse_diff(make_diff("a.py", [3]) + make_diff("big.py", [200]) + make_diff("c.py", [3]))
+    small = tokens(files[0].patch + "\n", "code")
+    budget = 2 * small + 20
+    chunks = ev.chunk_change(files, budget)
+    assert [c.truncated for c in chunks] == [False, True, False] and [c.total for c in chunks] == [3, 3, 3]
+    big = chunks[1]
+    (cut,) = big.cuts
+    assert cut["path"] == "big.py" and cut["header"] == files[1].hunks[0].header == "@@ -1,1 +1,201 @@"
+    assert cut["lines"] == 201 and 0 < cut["lines_sent"] < 201 and big.tokens <= budget
+    assert big.patch.split("\n")[-1] == f"[... {201 - cut['lines_sent']} lines omitted ...]"
+    assert big.patch.startswith("diff --git a/big.py b/big.py\n")
+    summary = ev.change_summary(files, chunks, budget)
+    assert {k: summary[k] for k in ("chunks", "budget", "hunks", "files", "truncated")} == {
+        "chunks": 3, "budget": budget, "hunks": 3, "files": 3, "truncated": [cut],
+    }
+    assert 0 < summary["sent"] < summary["tokens"] == tokens("\n".join(f.patch for f in files), "code")
+
+
+def test_chunk_change_hunkless_patch_travels_whole():
+    files = ev.parse_diff(read("multi.diff") + make_diff("big.py", [60]))
+    binary = [f for f in files if not f.hunks]
+    assert binary, "multi.diff carries a hunkless (binary) patch"
+    chunks = ev.chunk_change(files, 400)
+    joined = "\n".join(c.patch for c in chunks)
+    for file in binary:
+        assert joined.count(file.patch) == 1
+
+
+def test_outline_diff_lists_every_hunk_with_its_size():
+    files = ev.parse_diff(make_diff("a.py", [30, 5]) + make_diff("b.py", [7]))
+    outline = ev.outline_diff(files)
+    assert outline.split("\n") == [
+        "diff --git a/a.py b/a.py", "--- a/a.py", "+++ b/a.py",
+        "@@ -1,1 +1,31 @@ [31 lines]", "@@ -51,1 +51,6 @@ [6 lines]",
+        "diff --git a/b.py b/b.py", "--- a/b.py", "+++ b/b.py", "@@ -1,1 +1,8 @@ [8 lines]",
+    ]
+    assert "index " not in outline and "+00-" not in outline
 
 
 # ---------------------------------------------------------------------------
@@ -479,10 +525,14 @@ def test_evidence_summary_shape():
     kept, dropped = ev.filter_files(files, ignore=[], max_file_tokens=10_000)
     chunks = {f.path: ev.chunk_file(f, 300) for f in kept}
     log = ev.parse_test_log("pytest.log", read("pytest.log"))
-    summary = ev.evidence_summary(kept, dropped, chunks, [log], compacted=True)
-    assert summary["compacted"] is True
+    change = ev.change_summary(kept, ev.chunk_change(kept, 300), 300)
+    summary = ev.evidence_summary(kept, dropped, chunks, [log], change)
+    assert summary["compacted"] is True and summary["change"] is change and change["chunks"] > 1
     by_path = {f["path"]: f for f in summary["files"]}
     assert by_path["big.py"]["chunks"] == 1 and by_path["big.py"]["truncated"] is True
+    (cut,) = by_path["big.py"]["cuts"]
+    assert cut["path"] == "big.py" and cut["lines"] == 201 and 0 < cut["lines_sent"] < 201
+    assert ev.evidence_summary(kept, dropped, chunks, [log])["compacted"] is False
     assert by_path["src/mod.py"] == {"path": "src/mod.py", "status": "modified", "tokens": 89, "chunks": 1, "truncated": False}
     assert by_path["assets/logo.png"]["dropped_reason"] == "binary" and by_path["assets/logo.png"]["chunks"] == 0
     assert summary["tests"] == [{

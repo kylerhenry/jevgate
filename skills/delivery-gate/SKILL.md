@@ -28,7 +28,8 @@ The gate reads the ticket's `## Acceptance` bullets back, diffs the change, and 
    - **`unproven`, exit 2.** No failures, but some acceptance bullet has no passing test that plainly covers it, or the tests shown do not exercise the changed paths, or no log was given. Add the missing test (a test that checks the bullet's observable outcome), or run the existing one that does, then step 2 again. `--no-tests-ok` is only for changes with nothing to test, such as documentation, and must be justified in your hand-off.
    - **`accept`, exit 0.** Every acceptance bullet is met and proven, the tests exercise the change, and no finding fired. Report the run dir and the log hash in your hand-off.
    - **`uncertain`, exit 3.** API failure or `--no-ai`; not a pass. Fix and retry.
-   - **exit 4.** Empty diff, oversized request, missing key; the message names it.
+   - **exit 4.** Empty diff, oversized request, missing key, or `change too large` (the diff would need more than 8 whole-change chunks); the message names it. For `change too large`, split the change into smaller commits and gate each, or pass fewer `--files`.
+   - **`rule:evidence_truncated:<tag>` (warn, with any verdict).** One hunk was larger than the budget, so the model saw only its first lines; the message says `M of N lines sent` and every reading from that chunk carries `partial: true`. A pass read on a partial chunk is not proof: split the hunk into smaller commits or pass `--files` for the code that was cut, then run again. `## Evidence` prints `- diff: <tokens> tokens, <hunks> hunks, <files> files; sent whole in <k> chunks ...` so you can see whether the whole change was judged.
 
 5. **Stop rule.** Three rounds without `accept`: stop, hand the human the last `round-N.md` and say what is still failing and why.
 

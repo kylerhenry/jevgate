@@ -399,8 +399,8 @@ jevgate delivery check (--ticket <draft.md|json> | --from-linear DIY-17) [--repo
 | `source_globs` | suffix globs (like `ignore`) of the changed files that get the per-file questions; default `*.py *.js *.ts *.tsx *.jsx *.go *.rs *.java *.kt *.rb *.php *.c *.cc *.cpp *.h *.hpp *.cs *.swift *.sh *.sql`. Other files and deleted files stay in the whole-change diff and appear in `evidence.files` as `not_source` / `deleted` |
 | `test_log_globs` | where `delivery check` looks for test logs when `--test-log` is not given |
 | `hedges` | words and phrases counted as hedges / LLM-isms by the readability rules |
-| `state_budget` | token cap for one request state (default 24000) |
-| `file_budget` | token cap per file chunk (default 12000); larger files split at hunk boundaries |
+| `state_budget` | token cap for one request state (default 24000). A whole-change diff that does not fit is chunked at hunk boundaries and judged in up to 8 `change#N` requests, each carrying a headers-only outline of the whole diff; it is never compacted. A single hunk larger than the budget is cut with a marker and reported as `rule:evidence_truncated` (warn) with `readings[...].partial` true; more than 8 chunks is exit 4 |
+| `file_budget` | token cap per file chunk (default 12000); larger files split at hunk boundaries, and a hunk larger than the budget is cut and reported as `rule:evidence_truncated` |
 | `tests_budget` | token cap for parsed test output in the whole-change request (default 6000) |
 | `context_budget` | default per-area cap when `context.context_budget` is unset |
 | `max_file_tokens` | files above this are not reviewed and produce `rule:unreviewed_file` (default 40000) |
@@ -435,7 +435,7 @@ jevgate delivery check --from-linear DIY-17 --base main --test-log tests.log
 
 ## Run directories and reports
 
-Every `check` writes a run directory, default `.jevgate/runs/<YYYYMMDD-HHMMSS>-<gate>/`, containing `round-N.json` and `round-N.md` per round and `requests.jsonl`, one line per API request: `{ts, tag, sha, cached, question_ids, usage, error}`. Stdout is the markdown report (`--json` for the JSON one); the markdown has sections `Findings`, `Gather`, `Ask`, `Optional`, `Architecture`, `Reuse`, `Evidence`, `Usage` and `Delta`. `Evidence` lists exactly which notes and items were sent per area, which files were reviewed or dropped, and the test-log hashes. Pass the same `--run-dir` again to add a round; `Delta` then lists resolved, new and unchanged findings by id.
+Every `check` writes a run directory, default `.jevgate/runs/<YYYYMMDD-HHMMSS>-<gate>/`, containing `round-N.json` and `round-N.md` per round and `requests.jsonl`, one line per API request: `{ts, tag, sha, cached, question_ids, usage, error}`. Stdout is the markdown report (`--json` for the JSON one); the markdown has sections `Findings`, `Gather`, `Ask`, `Optional`, `Architecture`, `Reuse`, `Evidence`, `Usage` and `Delta`. `Evidence` lists exactly which notes and items were sent per area, which files were reviewed or dropped (a truncated file chunk shows `(truncated: M of N lines)`), the test-log hashes, and for the delivery gate one `diff:` line with the diff's size, how many `change` chunks it went in and every hunk that was cut (`evidence.change` in the JSON). Pass the same `--run-dir` again to add a round; `Delta` then lists resolved, new and unchanged findings by id.
 
 ```
 jevgate report .jevgate/runs/20260927-101500-ticket [--round N] [--json]

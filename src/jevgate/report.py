@@ -275,14 +275,33 @@ def _evidence_lines(evidence: dict) -> list[str]:
     tests = evidence.get("tests") or []
     if tests:
         lines.append(f"- tests: {', '.join(_evidence_name(t) for t in tests)}")
-    if evidence.get("compacted"):
-        lines.append("- diff was compacted to fit the state budget")
+    change = evidence.get("change")
+    if isinstance(change, dict):
+        lines.append(_change_line(change))
     for key, value in evidence.items():
-        if key in ("context", "files", "tests", "compacted") or (key == "truncated" and isinstance(value, list)):
+        if key in ("context", "files", "tests", "compacted", "change") or (key == "truncated" and isinstance(value, list)):
             continue
         if value not in (None, "", [], {}):
             lines.append(f"- {key}: {_inline(value)}")
     return lines
+
+
+def _change_line(change: dict) -> str:
+    """One line on how the whole-change diff was sent: its size, the chunks it
+    went in and every hunk that was cut (``path header sent of total lines``)."""
+    n = change.get("chunks", 1)
+    budget = f"(budget {change.get('budget')}" + (" each)" if n != 1 else ")")
+    where = f"{n} chunk{'s' if n != 1 else ''} {budget}"
+    line = f"- diff: {change.get('tokens', 0)} tokens, {change.get('hunks', 0)} hunks, {change.get('files', 0)} files; "
+    cuts = change.get("truncated") or []
+    if cuts:
+        return line + f"sent in {where}; truncated: " + ", ".join(_cut_text(c, with_path=True) for c in cuts)
+    return line + f"sent whole in {where}"
+
+
+def _cut_text(cut: dict, with_path: bool) -> str:
+    head = f"{cut.get('path', '')} {cut.get('header', '')}".strip() + " " if with_path else ""
+    return f"{head}{cut.get('lines_sent', 0)} of {cut.get('lines', 0)} lines"
 
 
 def _context_line(area: str, sent: Any, truncated: bool = False) -> str:
@@ -315,6 +334,8 @@ def _evidence_name(item: Any) -> str:
         name = str(item.get("path", item.get("name", "?")))
         if item.get("dropped_reason"):
             name += f" (dropped: {item['dropped_reason']})"
+        if item.get("cuts"):
+            name += " (truncated: " + ", ".join(_cut_text(c, with_path=False) for c in item["cuts"]) + ")"
         return name
     return str(item)
 

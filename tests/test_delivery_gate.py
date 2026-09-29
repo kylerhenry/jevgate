@@ -13,14 +13,15 @@ from typing import Callable
 import pytest
 
 from jevgate import client as client_module
-from jevgate.client import TypeSafeClient
+from jevgate.client import TypeSafeClient, request_hash
 from jevgate.config import Config
 from jevgate.context import ContextPack
 from jevgate.delivery import rubric
-from jevgate.delivery.evidence import parse_test_log, read_excerpt
+from jevgate.delivery.evidence import parse_diff, parse_test_log, read_excerpt
 from jevgate.delivery.gate import DeliveryInputs, check
 from jevgate.report import Report
 from jevgate.runs import Run
+from jevgate.textstats import tokens
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 CASES = FIXTURES / "deliveries"
@@ -60,7 +61,8 @@ def build_answer(question: dict, value, p: float) -> dict:
 class Script:
     """Fills ``canned.answers`` for every question of each request before the
     canned transport answers it. Rules match a gate id or family, optionally
-    restricted to one file path and chunk index; the last match wins."""
+    restricted to one file path and chunk index (a per-file chunk, or a
+    whole-change chunk when the state has no file); the last match wins."""
 
     def __init__(self, canned, monkeypatch: pytest.MonkeyPatch) -> None:
         self.canned = canned
@@ -75,7 +77,8 @@ class Script:
             file = state.get("file") or {}
             if path is not None and file.get("path") != path:
                 return False
-            if chunk is not None and (file.get("chunk") or {}).get("index", 1) != chunk:
+            chunk_info = (file.get("chunk") if file else state.get("chunk")) or {}
+            if chunk is not None and chunk_info.get("index", 1) != chunk:
                 return False
             return True
         self.rules.append((match, value, p))
@@ -141,6 +144,11 @@ def bodies_for(canned, tag_prefix: str) -> list[dict]:
 
 def finding(report: Report, prefix: str):
     return [f for f in report.findings if f.id.startswith(prefix)]
+
+
+def audit_lines(tmp_path: Path, run_id: str = "r1") -> list[dict]:
+    path = tmp_path / "runs" / run_id / "requests.jsonl"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def mini_vault(root: Path) -> ContextPack:
@@ -463,18 +471,135 @@ def test_second_round_reasks_only_the_changed_file(canned, monkeypatch, pack, tm
     assert second.delta == {"resolved": [], "new": [], "unchanged": []}
 
 
-def test_big_diff_takes_the_compacted_path(canned, monkeypatch, pack, tmp_path):
+def test_change_state_is_chunked_at_hunk_boundaries(canned, monkeypatch, pack, tmp_path):
     diff = "".join(synthetic_diff(f"src/ledger/services/mod{i}.py", 1, 60) for i in range(4))
     ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one"]}
     cfg = Config(state_budget=3000, file_budget=12000)
     Script(canned, monkeypatch)
     report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff, no_tests_ok=True), pack, tmp_path, cfg=cfg)
     assert report.outcome == "accept" and report.evidence["compacted"] is True
-    change = bodies_for(canned, "change")[0]["state"]
-    assert change["diff"].count("diff --git") == 4 and "line-00-059" not in change["diff"]
+    bodies = bodies_for(canned, "change")
+    n = len(bodies)
+    assert n >= 2 and sorted(b["state"]["chunk"]["index"] for b in bodies) == list(range(1, n + 1))
+    assert all(b["state"]["chunk"] == {"index": b["state"]["chunk"]["index"], "total": n, "truncated": False} for b in bodies)
+    budget = report.evidence["change"]["budget"]
+    assert 2000 <= budget <= cfg.state_budget
+    joined = "\n".join(b["state"]["diff"] for b in bodies)
+    for body in bodies:
+        state = body["state"]
+        assert tokens(state["diff"], "code") <= budget
+        assert state["diff"].count("@@ -") == state["diff"].count("diff --git a/")  # whole hunks, each under its file header
+        outline = state["diff_outline"].split("\n")
+        assert [line for line in outline if line.startswith("diff --git")] == [
+            f"diff --git a/src/ledger/services/mod{i}.py b/src/ledger/services/mod{i}.py" for i in range(4)
+        ]
+        assert [line for line in outline if line.startswith("@@")] == ["@@ -1,1 +1,61 @@ [61 lines]"] * 4
+    for i in range(60):
+        assert joined.count(f"+line-00-{i:03d} ") == 4  # each file's copy of the line lands in exactly one chunk
+    assert joined.count("@@ -") == 4 and all(joined.count(f"diff --git a/src/ledger/services/mod{i}.py") == 1 for i in range(4))
     for body in bodies_for(canned, "src/"):
         assert "line-00-059" in body["state"]["file"]["patch"]
-    assert "diff was compacted" in report.to_markdown()
+    tags = [line["tag"] for line in audit_lines(tmp_path)]
+    assert sorted(t for t in tags if t.startswith("change")) == [f"change#{i}" for i in range(1, n + 1)]
+    change = report.evidence["change"]
+    assert change["chunks"] == n and change["hunks"] == 4 and change["files"] == 4 and change["truncated"] == []
+    assert change["sent"] == change["tokens"] == tokens("\n".join(f.patch for f in parse_diff(diff)), "code")
+    assert report.rules["stats"]["change_chunks"] == n and report.rules["stats"]["requests"] == 4 + n
+    md = report.to_markdown()
+    assert f"- diff: {change['tokens']} tokens, 4 hunks, 4 files; sent whole in {n} chunks (budget {budget} each)" in md
+    assert "diff was compacted" not in md
+
+
+ACCEPT_01_CHANGE_SHA = "20d7adf1312933c167d50183caf8d2c7aeaa0f266b352ff0bffb06611b30bd9d"  # recorded before chunking existed
+
+
+def test_single_chunk_change_state_is_unchanged(canned, monkeypatch, pack, tmp_path):
+    Script(canned, monkeypatch)
+    report = run_gate(inputs_for("accept-01"), pack, tmp_path)
+    (body,) = bodies_for(canned, "change")
+    assert "chunk" not in body["state"] and "diff_outline" not in body["state"]
+    assert sorted(body["state"]) == ["diff", "files_after", "tests", "ticket"]
+    assert request_hash(body) == ACCEPT_01_CHANGE_SHA
+    assert (FIXTURES / "responses" / f"{ACCEPT_01_CHANGE_SHA}.json").is_file()
+    assert report.evidence["compacted"] is False and report.evidence["change"]["chunks"] == 1
+    assert [line["tag"] for line in audit_lines(tmp_path) if line["tag"].startswith("change")] == ["change"]
+    assert report.readings["scope_creep"]["chunk"] == 1 and report.readings["scope_creep"]["partial"] is False
+    assert report.outcome == "accept"
+
+
+def test_change_readings_combine_per_family(canned, monkeypatch, pack, tmp_path):
+    diff = "".join(synthetic_diff(f"src/ledger/services/mod{i}.py", 1, 60) for i in range(4))
+    ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one", "two"]}
+    cfg = Config(state_budget=3000, file_budget=12000)
+    (Script(canned, monkeypatch)
+     .on("ac_met:1", "met", 0.95, chunk=1).on("ac_met:1", "unclear", 0.80, chunk=2)
+     .on("scope_creep", "creep", 0.90, chunk=2)
+     .on("ac_met:2", "unclear", 0.80))
+    logs = load_case("accept-01")["logs"]
+    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff, logs=logs), pack, tmp_path, cfg=cfg)
+    bodies = bodies_for(canned, "change")
+    assert len(bodies) == 2, "the fixture diff must split into exactly two change chunks"
+    met = report.readings["ac_met:1"]
+    assert met["status"] == "pass" and met["chunk"] == 1 and met["p"] == 0.95 and met["partial"] is False
+    assert set(met["per_chunk"]) == {"1", "2"} and met["per_chunk"]["2"]["status"] == "unclear"
+    creep = finding(report, "jev:scope_creep")
+    assert len(creep) == 1 and creep[0].severity == "fail" and creep[0].location["chunk"] == 2
+    assert report.readings["scope_creep"]["chunk"] == 2 and report.readings["scope_creep"]["per_chunk"]["1"]["status"] == "pass"
+    unclear = finding(report, "jev:ac_met:2")
+    assert len(unclear) == 1 and unclear[0].severity == "unclear" and unclear[0].location["chunk"] in (1, 2)
+    assert any(g["for"] == ["ac_met:2"] for g in report.gather)
+    by_tag = {line["tag"]: line["question_ids"] for line in audit_lines(tmp_path)}
+    assert "ac_proven:1" in by_tag["change#1"] and "ac_proven:2" in by_tag["change#1"]
+    assert not any(q.startswith("ac_proven") for q in by_tag["change#2"])
+    assert {"ac_met:1", "ac_met:2", "scope_creep", "tests_exercise_change"} <= set(by_tag["change#2"])
+    assert report.readings["ac_proven:1"]["chunk"] == 1 and list(report.readings["ac_proven:1"]["per_chunk"]) == ["1"]
+    assert report.outcome == "revise"
+
+
+def test_oversized_hunk_is_truncated_and_reported(canned, monkeypatch, pack, tmp_path):
+    path = "src/ledger/services/big.py"
+    diff = synthetic_diff(path, 1, 399)  # one hunk: a context line plus 399 added lines = 400 body lines
+    ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one"]}
+    cfg = Config(state_budget=3000, file_budget=12000)
+    Script(canned, monkeypatch)
+    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff, no_tests_ok=True), pack, tmp_path, cfg=cfg)
+    (body,) = bodies_for(canned, "change")
+    state = body["state"]
+    lines = state["diff"].split("\n")
+    assert lines[-1].startswith("[... ") and lines[-1].endswith(" lines omitted ...]")
+    assert state["chunk"] == {"index": 1, "total": 1, "truncated": True} and "@@ -1,1 +1,400 @@ [400 lines]" in state["diff_outline"]
+    omitted = int(lines[-1].split()[1])
+    sent = 400 - omitted
+    assert 0 < sent < 400
+    (warn,) = finding(report, "rule:evidence_truncated:change#1")
+    assert warn.severity == "warn" and warn.source == "rule" and warn.location == {"chunk": 1}
+    assert path in warn.message and "@@ -1,1 +1,400 @@" in warn.message and f"{sent} of 400 lines" in warn.message
+    assert report.evidence["change"]["truncated"] == [{"path": path, "header": "@@ -1,1 +1,400 @@", "lines_sent": sent, "lines": 400}]
+    assert report.evidence["compacted"] is True and report.evidence["change"]["sent"] < report.evidence["change"]["tokens"]
+    for gate_id in ("ac_met:1", "scope_creep"):
+        assert report.readings[gate_id]["partial"] is True and report.readings[gate_id]["per_chunk"]["1"]["partial"] is True
+    assert report.readings["correctness_defect"]["partial"] is False  # the per-file chunk fit whole
+    assert [line["tag"] for line in audit_lines(tmp_path) if line["tag"].startswith("change")] == ["change#1"]
+    assert report.outcome == "accept"
+    assert f"; truncated: {path} @@ -1,1 +1,400 @@ {sent} of 400 lines" in report.to_markdown()
+
+
+def test_file_truncation_is_a_finding(canned, monkeypatch, pack, tmp_path):
+    path = "src/ledger/services/big.py"
+    diff = synthetic_diff(path, 1, 399)
+    ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one"]}
+    cfg = Config(file_budget=600)
+    Script(canned, monkeypatch)
+    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=diff, no_tests_ok=True), pack, tmp_path, cfg=cfg)
+    (warn,) = finding(report, f"rule:evidence_truncated:file:{path}#1")
+    assert warn.severity == "warn" and warn.location == {"file": path, "chunk": 1}
+    (cut,) = report.evidence["files"][0]["cuts"]
+    assert cut["path"] == path and cut["header"] == "@@ -1,1 +1,400 @@" and cut["lines"] == 400 and 0 < cut["lines_sent"] < 400
+    assert f"{cut['lines_sent']} of 400 lines" in warn.message
+    assert f"- files: {path} (truncated: {cut['lines_sent']} of 400 lines)" in report.to_markdown()
+    assert report.readings["correctness_defect"]["partial"] is True
+    assert report.evidence["compacted"] is False and report.evidence["change"]["truncated"] == []  # the whole change fit
+    assert report.outcome == "accept"
 
 
 def test_report_markdown_lists_hints(canned, monkeypatch, pack, tmp_path):
