@@ -275,11 +275,14 @@ def _evidence_lines(evidence: dict) -> list[str]:
     tests = evidence.get("tests") or []
     if tests:
         lines.append(f"- tests: {', '.join(_evidence_name(t) for t in tests)}")
+    commands = evidence.get("commands") or []
+    if commands:
+        lines.append(f"- commands: {', '.join(_evidence_name(c) for c in commands)}")
     change = evidence.get("change")
     if isinstance(change, dict):
         lines.append(_change_line(change))
     for key, value in evidence.items():
-        if key in ("context", "files", "tests", "compacted", "change") or (key == "truncated" and isinstance(value, list)):
+        if key in ("context", "files", "tests", "commands", "compacted", "change") or (key == "truncated" and isinstance(value, list)):
             continue
         if value not in (None, "", [], {}):
             lines.append(f"- {key}: {_inline(value)}")

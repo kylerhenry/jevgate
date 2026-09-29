@@ -1,0 +1,72 @@
+$ python -m ledger.report close-status --period 2024-01 --json
+{
+  "generated_at": "2024-02-03T10:00:00Z",
+  "store": "ledger.sqlite3",
+  "schema": 7,
+  "requested": "2024-01",
+  "periods": [
+    {
+      "period": "2024-01",
+      "closed": true,
+      "closed_at": "2024-02-01T08:03:12Z",
+      "entries": 12,
+      "rejected": 3,
+      "balance": {
+        "debit": 7310.5,
+        "credit": 7310.5,
+        "currency": "EUR"
+      },
+      "tenants": [
+        "acme"
+      ],
+      "rejections": [
+        {
+          "entry": "e-1042",
+          "code": "period_closed"
+        },
+        {
+          "entry": "e-1043",
+          "code": "period_closed"
+        },
+        {
+          "entry": "e-1051",
+          "code": "period_closed"
+        }
+      ]
+    },
+    {
+      "period": "2023-12",
+      "closed": true,
+      "closed_at": "2024-01-02T09:14:00Z",
+      "entries": 41,
+      "rejected": 0,
+      "balance": {
+        "debit": 18250.0,
+        "credit": 18250.0,
+        "currency": "EUR"
+      },
+      "tenants": [
+        "acme",
+        "globex"
+      ]
+    },
+    {
+      "period": "2024-02",
+      "closed": false,
+      "closed_at": null,
+      "entries": 9,
+      "rejected": 0,
+      "balance": {
+        "debit": 1200.0,
+        "credit": 1200.0,
+        "currency": "EUR"
+      },
+      "tenants": [
+        "acme",
+        "globex",
+        "initech"
+      ]
+    }
+  ]
+}
+exit status 0

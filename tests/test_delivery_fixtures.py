@@ -21,7 +21,7 @@ CASES = sorted(p for p in (FIXTURES / "deliveries").iterdir() if p.is_dir())
 EXPECTED_CASES = {
     "accept-01", "unmet-ac-01", "unproven-nologs-01", "unproven-unrelated-tests-01", "defect-01", "duplicate-01",
     "scope-creep-01", "over-engineered-01", "failing-tests-01", "rule-violation-01", "convention-01",
-    "unclear-ac-01", "gather-resolved-02",
+    "unclear-ac-01", "gather-resolved-02", "command-proven-01", "command-unproven-01", "command-proven-02", "command-differs-01",
 }
 VERDICTS = {"accept", "revise", "unproven", "uncertain", "gather"}
 

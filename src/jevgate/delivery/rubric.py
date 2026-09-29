@@ -7,6 +7,8 @@ level 0.70) and are then overridden from the config by exact id or family.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import replace
 from typing import Iterable
 
@@ -30,8 +32,57 @@ LEVEL_THRESHOLD = 0.70
 CONTRIBUTES_AT = 0.50  # touches_ac:<i> at or above this means the file serves the bullet
 
 FILE_FAMILIES = ("dup", "over_engineered", "correctness_defect", "arch_rule", "convention", "edge_cases", "touches_ac")
-CHANGE_FAMILIES = ("ac_met", "ac_proven", "scope_creep", "tests_exercise_change")
-PROOF_FAMILIES = ("ac_proven", "tests_exercise_change")
+CHANGE_FAMILIES = ("ac_met", "ac_proven", "command_proven", "scope_creep", "tests_exercise_change")
+PROOF_FAMILIES = ("ac_proven", "command_proven", "tests_exercise_change")
+
+# An acceptance bullet that quotes a shell command with arguments is checked by
+# running that command, not by a test: its proof is the command's captured
+# output (``--command-output``).  Test runners and test ids stay test-backed.
+_CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+_TEST_REF_RE = re.compile(r"::|^test_|^tests?/.*\.(py|ts|js|tsx|jsx|go|rs|java|kt|rb)$")
+COMMAND_RUNNERS = frozenset((
+    "jevgate", "grep", "rg", "git", "curl", "wget", "make", "npm", "npx", "node", "go", "cargo", "docker", "python",
+    "python3", "ls", "cat", "sed", "awk", "jq", "diff", "wc", "find", "bash", "sh", "systemctl", "journalctl", "ssh",
+    "kubectl", "terraform", "aws", "gcloud", "az", "psql", "sqlite3", "pip", "ruff", "black", "mypy", "http", "ffprobe",
+))
+COMMAND_PREFIXES = frozenset(("env", "sudo", "time", "nice", "ionice", "timeout", "nohup"))  # wrappers before the real command
+_PREFIX_ARG_RE = re.compile(r"^(-|[A-Z_][A-Z0-9_]*$|\d+$|.*=)")  # a wrapper's options, VAR names, numbers or VAR=value
+TEST_RUNNERS = (
+    ("pytest",), ("jest",), ("vitest",), ("mocha",), ("go", "test"), ("cargo", "test"), ("npm", "test"), ("npx", "jest"),
+    ("npx", "vitest"), ("python", "-m", "pytest"), ("python3", "-m", "pytest"), ("python", "-m", "unittest"),
+    ("python3", "-m", "unittest"),
+)
+
+
+def command_in_bullet(text: str) -> str | None:
+    """The command an acceptance bullet is checked by, or ``None`` when a test proves it.
+
+    A span of inline code is a command when it has arguments and starts with an
+    executable: a known tool name or a path (``./run``, ``.venv/bin/jevgate``,
+    ``/usr/bin/x``), after skipping wrappers such as ``env -u KEY``,
+    ``sudo`` or ``nice -n 19``.  A bullet that names a test (``file.py::test_x``,
+    ``test_x``, ``tests/…``) or a test runner (``pytest -q``, ``go test``,
+    ``python -m unittest``) is test-backed whatever else it quotes."""
+    spans = [span.strip() for span in _CODE_SPAN_RE.findall(text)]
+    if any(_TEST_REF_RE.search(span) for span in spans):
+        return None
+    for span in spans:
+        words = span.lstrip("$ ").split()
+        while words and words[0] in COMMAND_PREFIXES:  # env -u KEY cmd …, sudo cmd …, nice -n 19 cmd …
+            words = words[1:]
+            while words and _PREFIX_ARG_RE.match(words[0]):
+                words = words[1:]
+        if len(words) < 2:
+            continue
+        head = words[0]
+        name = head.rsplit("/", 1)[-1]
+        is_path = head.startswith(("./", "../", "~/", "/")) or "/bin/" in head or head.startswith(".venv/")
+        if not (is_path or name in COMMAND_RUNNERS):
+            continue
+        if any(tuple([name, *words[1:len(runner)]]) == runner for runner in TEST_RUNNERS):
+            return None
+        return " ".join(words)
+    return None
 FAMILY_NEEDS = {"dup": "components", "arch_rule": "architecture", "convention": "conventions"}
 
 
@@ -331,6 +382,31 @@ def ac_proven_gate(index: int, bullet: str) -> Gate:
     )
 
 
+def command_proven_gate(index: int, bullet: str, command: str) -> Gate:
+    return Gate(
+        id=f"command_proven:{index}",
+        question=Choice(
+            _instructions(
+                f"Acceptance bullet «{bullet}». It is checked by running the command «{command}». The state's `commands` "
+                "entries are captured outputs (stdout and stderr) of commands, one file each. Does one of them show that "
+                "this command was run and produced the result the bullet states? Test output does not count here, and the "
+                "output of a different command does not count."
+            ),
+            {
+                "output_shows_result": "The captured output of this command plainly shows the stated result or values.",
+                "output_differs": "The command ran but its captured output shows a different result.",
+                "no_output_for_command": None,
+                "unclear": None,
+            },
+        ),
+        kind="choice",
+        threshold=PASS_THRESHOLD,
+        pass_options=("output_shows_result",),
+        item={"criterion": index, "text": bullet, "command": command},
+        hint=f"Run «{command}» after the last edit, save its full output (`... > out.log 2>&1`) and pass it with --command-output out.log.",
+    )
+
+
 def scope_creep_gate() -> Gate:
     return Gate(
         id="scope_creep",
@@ -369,11 +445,16 @@ def tests_exercise_gate() -> Gate:
 
 
 def change_gates(acceptance: list[str], has_tests: bool, cfg: Config | None = None) -> list[Gate]:
-    """The whole-change gates: ``ac_met`` per bullet, ``scope_creep``, and — only
-    when test output is present — ``ac_proven`` per bullet and ``tests_exercise_change``."""
-    gates: list[Gate] = [ac_met_gate(i, b) for i, b in enumerate(acceptance, 1)]
+    """The whole-change gates: ``ac_met`` per test-backed bullet, ``scope_creep``,
+    ``command_proven`` per command-backed bullet (see :func:`command_in_bullet`),
+    and — only when test output is present — ``ac_proven`` per test-backed
+    bullet and ``tests_exercise_change``."""
+    commands = {i: command_in_bullet(b) for i, b in enumerate(acceptance, 1)}
+    by_test = [(i, b) for i, b in enumerate(acceptance, 1) if not commands[i]]
+    gates: list[Gate] = [ac_met_gate(i, b) for i, b in by_test]
     if has_tests:
-        gates += [ac_proven_gate(i, b) for i, b in enumerate(acceptance, 1)]
+        gates += [ac_proven_gate(i, b) for i, b in by_test]
+    gates += [command_proven_gate(i, b, commands[i]) for i, b in enumerate(acceptance, 1) if commands[i]]
     gates.append(scope_creep_gate())
     if has_tests:
         gates.append(tests_exercise_gate())
@@ -382,7 +463,8 @@ def change_gates(acceptance: list[str], has_tests: bool, cfg: Config | None = No
 
 __all__ = [
     "DATA_NOTE", "UNCLEAR_NOTES", "PASS_THRESHOLD", "FIRE_THRESHOLD", "LEVEL_THRESHOLD", "CONTRIBUTES_AT",
-    "FILE_FAMILIES", "CHANGE_FAMILIES", "PROOF_FAMILIES", "FAMILY_NEEDS",
+    "FILE_FAMILIES", "CHANGE_FAMILIES", "PROOF_FAMILIES", "FAMILY_NEEDS", "COMMAND_RUNNERS", "COMMAND_PREFIXES", "TEST_RUNNERS",
+    "command_in_bullet", "command_proven_gate",
     "file_gates", "change_gates", "select_components", "select_rules", "select_conventions",
     "component_item", "rule_item", "convention_item",
 ]

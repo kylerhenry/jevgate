@@ -1,0 +1,18 @@
+============================= test session starts ==============================
+platform linux -- Python 3.10.12, pytest-8.0.0, pluggy-1.4.0
+rootdir: /work/ledger
+collected 12 items
+
+src/ledger/services/test_posting.py::test_post_entry_writes_balanced_entry PASSED[  8%]
+src/ledger/services/test_posting.py::test_post_entry_rejects_closed_period PASSED[ 16%]
+src/ledger/services/test_posting.py::test_post_entry_writes_nothing_when_closed PASSED[ 25%]
+src/ledger/services/test_posting.py::test_post_entry_open_period_unchanged PASSED[ 33%]
+src/ledger/services/test_posting.py::test_post_entry_rejects_unbalanced_entry PASSED[ 41%]
+src/ledger/services/test_periods.py::test_close_period_writes_one_row PASSED[ 50%]
+src/ledger/services/test_periods.py::test_close_twice_raises PASSED     [ 58%]
+src/ledger/api/test_router.py::test_api_posts_balanced_entry PASSED     [ 66%]
+src/ledger/api/test_router.py::test_api_returns_404_for_unknown_period PASSED[ 75%]
+src/ledger/api/test_router.py::test_api_returns_409_for_closed_period PASSED[ 83%]
+src/ledger/api/test_router.py::test_api_returns_422_for_unbalanced_entry PASSED[ 91%]
+src/ledger/api/test_auth.py::test_token_required PASSED                 [100%]
+============================== 12 passed in 0.41s ==============================

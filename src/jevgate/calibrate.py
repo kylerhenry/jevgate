@@ -528,6 +528,7 @@ def case_inputs(kind: str, case_dir: Path, args: Any, *, root: Path | None = Non
     namespace = argparse.Namespace(
         ticket=str(case_dir / CASE_FILE[kind]), from_linear=None, diff_file=str(case_dir / "change.patch"),
         base=None, head=None, repo=str(case_dir), test_log=logs, files=list(expected.get("files") or []),
+        command_output=[str(case_dir / p) for p in expected.get("commands") or []],
         no_tests_ok=False, all_items=False,
     )
     built.inputs = gate_module(kind).build_inputs(namespace, cfg)

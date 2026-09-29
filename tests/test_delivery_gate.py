@@ -29,7 +29,7 @@ CASES = FIXTURES / "deliveries"
 GOOD = {
     "dup": "unrelated", "over_engineered": "no", "correctness_defect": "no_defect_visible",
     "arch_rule": "complies", "convention": "follows", "edge_cases": 2, "touches_ac": 0.9,
-    "ac_met": "met", "ac_proven": "passing_test_covers", "scope_creep": "none", "tests_exercise_change": "covers",
+    "ac_met": "met", "ac_proven": "passing_test_covers", "scope_creep": "none", "tests_exercise_change": "covers", "command_proven": "output_shows_result",
 }
 
 
@@ -136,6 +136,8 @@ def bodies_for(canned, tag_prefix: str) -> list[dict]:
     for body in canned.bodies:
         state = body["state"]
         if tag_prefix == "change" and "diff" in state:
+            out.append(body)
+        elif tag_prefix == "commands" and "commands" in state and "diff" not in state:
             out.append(body)
         elif "file" in state and state["file"]["path"].startswith(tag_prefix):
             out.append(body)
@@ -469,6 +471,102 @@ def test_second_round_reasks_only_the_changed_file(canned, monkeypatch, pack, tm
     audit = [json.loads(line) for line in (tmp_path / "runs" / "r1" / "requests.jsonl").read_text().splitlines()]
     assert sum(1 for line in audit if line["cached"]) == 3
     assert second.delta == {"resolved": [], "new": [], "unchanged": []}
+
+
+@pytest.mark.parametrize("bullet, command", [
+    ("`jevgate delivery check --repo x --base main --json` reports `evidence.change.chunks == 3`.", "jevgate delivery check --repo x --base main --json"),
+    ("`grep -c evidence_truncated README.md` prints at least 1.", "grep -c evidence_truncated README.md"),
+    ("`.venv/bin/jevgate calibrate delivery fixtures/deliveries` prints `13/13`.", ".venv/bin/jevgate calibrate delivery fixtures/deliveries"),
+    ("Running `$ ./scripts/check.sh --strict` exits 0.", "./scripts/check.sh --strict"),
+    ("`python -m ledger.cli post --period 2024-01` exits 1.", "python -m ledger.cli post --period 2024-01"),
+    ("`env -u TYPESAFE_API_KEY .venv/bin/jevgate calibrate delivery fixtures/deliveries` exits 0.", ".venv/bin/jevgate calibrate delivery fixtures/deliveries"),
+    ("`sudo systemctl restart plex` succeeds and `nice -n 19 ionice -c 3 ./scan.sh --all` exits 0.", "systemctl restart plex"),
+    ("`FOO=1 env -u KEY pytest -q` passes.", None),
+    ("`sudo -u plex pytest -q tests` passes.", None),
+    ("`pytest -q` passes with no test deleted.", None),
+    ("`python3 -m unittest discover tests` passes.", None),
+    ("`go test ./...` is green and `jevgate context show --why` lists two areas.", None),
+    ("`tests/test_delivery_gate.py::test_x`, with `Config(state_budget=3000)`: the bodies number at least 2.", None),
+    ("`tests/test_docs.py` checks it, then `grep -c x README.md` prints 1.", None),
+    ("`test_evidence_change_line` renders the line; `jevgate report run` shows it.", None),
+    ("`post_entry` raises `PeriodClosedError` when the period is closed.", None),
+    ("`migrate-state` imports the state, and `status` reports 36 `SWAPPED`.", None),
+    ("`evidence.compacted == true` and `rules.stats.requests == 7`.", None),
+])
+def test_command_in_bullet_detects_commands_not_tests(bullet, command):
+    assert rubric.command_in_bullet(bullet) == command
+
+
+def test_change_gates_route_command_bullets_to_command_proven():
+    acceptance = ["a test-backed bullet", "`grep -c x README.md` prints 1", "`pytest -q` passes"]
+    gates = rubric.change_gates(acceptance, True, Config())
+    assert [g.id for g in gates] == ["ac_met:1", "ac_met:3", "ac_proven:1", "ac_proven:3", "command_proven:2", "scope_creep", "tests_exercise_change"]
+    gate = {g.id: g for g in gates}["command_proven:2"]
+    assert gate.family == "command_proven" and gate.family in rubric.PROOF_FAMILIES and gate.threshold == 0.90
+    assert gate.item == {"criterion": 2, "text": acceptance[1], "command": "grep -c x README.md"}
+    assert "grep -c x README.md" in gate.question.instructions and "--command-output" in gate.hint
+    assert [g.id for g in rubric.change_gates(acceptance, False, Config())] == ["ac_met:1", "ac_met:3", "command_proven:2", "scope_creep"]
+
+
+COMMAND_BULLET = "`python -m ledger.cli post --period 2024-01 --amount 5` exits 1 and prints `error: period_closed`."
+
+
+def test_command_output_proves_a_command_bullet(canned, monkeypatch, pack, tmp_path):
+    Script(canned, monkeypatch).on("command_proven", "output_shows_result", 0.96)
+    case = load_case("accept-01")
+    ticket = {**case["ticket"], "acceptance": [*case["ticket"]["acceptance"], COMMAND_BULLET]}
+    output = "$ python -m ledger.cli post --period 2024-01 --amount 5\nerror: period_closed: period 2024-01 is closed\nexit status 1\n"
+    inputs = DeliveryInputs(ticket=ticket, diff_text=case["diff"], logs=case["logs"], files_after=case["files_after"],
+                            commands=[{"path": "post.log", "text": output}])
+    report = run_gate(inputs, pack, tmp_path)
+    assert report.outcome == "accept"
+    (body,) = bodies_for(canned, "change")
+    assert "commands" not in body["state"]
+    asked = set(body["questions"])
+    assert "command_proven:4" not in asked and "ac_met:4" not in asked and "ac_proven:4" not in asked
+    assert {"ac_met:1", "ac_met:2", "ac_met:3", "ac_proven:1", "ac_proven:2", "ac_proven:3"} <= asked
+    (cmd,) = bodies_for(canned, "commands")
+    assert sorted(cmd["state"]) == ["commands", "ticket"] and cmd["state"]["commands"] == [{"path": "post.log", "text": output}]
+    assert list(cmd["questions"]) == ["command_proven:4"]
+    assert sorted(line["tag"] for line in audit_lines(tmp_path) if line["tag"] in ("change", "commands")) == ["change", "commands"]
+    assert report.readings["command_proven:4"]["status"] == "pass" and report.readings["command_proven:4"]["p"] == 0.96
+    assert "command_proven:4" not in [f.id for f in report.findings]
+    assert report.evidence["commands"] == [{"path": "post.log", "lines": 3, "sha256": report.evidence["commands"][0]["sha256"]}]
+    assert len(report.evidence["commands"][0]["sha256"]) == 64
+    assert "- commands: post.log" in report.to_markdown()
+    for body in bodies_for(canned, "src/"):
+        assert "touches_ac:4" in body["questions"] and "commands" not in body["state"]
+
+
+def test_command_bullet_without_output_is_unproven_with_a_hint(canned, monkeypatch, pack, tmp_path):
+    Script(canned, monkeypatch).on("command_proven", "no_output_for_command", 0.97)
+    case = load_case("accept-01")
+    ticket = {**case["ticket"], "acceptance": [*case["ticket"]["acceptance"], COMMAND_BULLET]}
+    report = run_gate(DeliveryInputs(ticket=ticket, diff_text=case["diff"], logs=case["logs"], files_after=case["files_after"]), pack, tmp_path)
+    assert report.outcome == "unproven" and not report.gather
+    (cmd,) = bodies_for(canned, "commands")
+    assert cmd["state"]["commands"] == [] and "commands" not in report.evidence and "commands" not in bodies_for(canned, "change")[0]["state"]
+    (warn,) = finding(report, "jev:command_proven:4")
+    assert warn.severity == "warn" and warn.gate == "command_proven" and warn.location["criterion"] == 4
+    assert warn.message.startswith("The command output does not prove criterion 4")
+    assert "python -m ledger.cli post --period 2024-01 --amount 5" in warn.hint and "--command-output" in warn.hint
+    assert not [f for f in report.findings if f.id.startswith("jev:ac_met:4") or f.id.startswith("jev:ac_proven:4")]
+
+
+def test_command_proven_has_its_own_request_beside_the_change_chunks(canned, monkeypatch, pack, tmp_path):
+    diff = "".join(synthetic_diff(f"src/ledger/services/mod{i}.py", 1, 60) for i in range(4))
+    ticket = {"title": "t", "why": "w", "what": "x", "acceptance": ["one", "`grep -c x README.md` prints 1"]}
+    Script(canned, monkeypatch).on("command_proven", "output_shows_result", 0.95)
+    inputs = DeliveryInputs(ticket=ticket, diff_text=diff, logs=load_case("accept-01")["logs"],
+                            commands=[{"path": "grep.log", "text": "$ grep -c x README.md\n1\n"}])
+    report = run_gate(inputs, pack, tmp_path, cfg=Config(state_budget=3000, file_budget=12000))
+    by_tag = {line["tag"]: line["question_ids"] for line in audit_lines(tmp_path)}
+    assert by_tag["commands"] == ["command_proven:2"]
+    assert not any("command_proven" in q for tag in ("change#1", "change#2") for q in by_tag[tag])
+    assert all("commands" not in b["state"] for b in bodies_for(canned, "change"))
+    assert report.readings["command_proven:2"]["chunk"] == 1 and list(report.readings["command_proven:2"]["per_chunk"]) == ["1"]
+    assert report.evidence["change"]["chunks"] == 2 and report.rules["stats"]["change_chunks"] == 2 and report.rules["stats"]["requests"] == 7
+    assert report.outcome == "accept"
 
 
 def test_change_state_is_chunked_at_hunk_boundaries(canned, monkeypatch, pack, tmp_path):

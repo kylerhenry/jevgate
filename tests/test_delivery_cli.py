@@ -72,7 +72,7 @@ def answer(question: dict, value, p: float = 0.95) -> dict:
 GOOD = {
     "dup": "unrelated", "over_engineered": "no", "correctness_defect": "no_defect_visible", "arch_rule": "complies",
     "convention": "follows", "edge_cases": 2, "touches_ac": None, "ac_met": "met", "ac_proven": "passing_test_covers",
-    "scope_creep": "none", "tests_exercise_change": "covers",
+    "scope_creep": "none", "tests_exercise_change": "covers", "command_proven": "output_shows_result",
 }
 
 
@@ -273,6 +273,23 @@ def test_change_over_chunk_cap_exits_4(scripted, repo, tmp_path, capsys):
     audit = tmp_path / "run" / "requests.jsonl"
     assert not audit.exists() or audit.read_text() == ""
     assert not scripted.bodies
+
+
+def test_command_output_flag_is_read_and_missing_file_exits_4(scripted, repo, tmp_path, capsys):
+    (repo / "ticket.md").write_text(TICKET.replace("- `greet(\"\")` raises `ValueError`.\n",
+                                                   "- `greet(\"\")` raises `ValueError`.\n- `python -m app greet Ada` prints `Hello, Ada!`.\n"))
+    log = tmp_path / "pytest.log"
+    log.write_text(PYTEST_OK)
+    out = tmp_path / "greet.log"
+    out.write_text("$ python -m app greet Ada\nHello, Ada!\n")
+    scripted["command_proven"] = "output_shows_result"
+    code = cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(log), "--command-output", str(out), "--json"))
+    data = json.loads(capsys.readouterr().out)
+    assert code == 0 and data["outcome"] == "accept"
+    assert data["readings"]["command_proven:3"]["status"] == "pass" and "ac_met:3" not in data["readings"]
+    assert data["evidence"]["commands"][0]["path"] == str(out) and data["evidence"]["commands"][0]["lines"] == 2
+    assert cli.main(base_args(repo, tmp_path, "--base", "HEAD", "--test-log", str(log), "--command-output", str(tmp_path / "nope.log"))) == 4
+    assert "command output not found" in capsys.readouterr().err
 
 
 def test_no_context_pack_warns_and_runs(scripted, repo, tmp_path, capsys):

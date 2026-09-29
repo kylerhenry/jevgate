@@ -506,3 +506,49 @@ labelled-passing drafts 6/14 → 2/14, and the two remaining fires are on drafts
 gates already decide, so no route moves. `missing-context-01` still routes `revise` instead of
 `ask` (B04 0.67 against `BANK_AT` 0.70, as in rounds 4 and 5); `BANK_AT` has one ask-labelled
 fixture and so stays untested.
+
+## Round 7 (command-backed acceptance bullets), catalog `2026-09-27.6`
+
+Two DIY-24 acceptance bullets were command results (a live `jevgate delivery check … --json` replay
+and a `grep -c` over the docs), and the delivery gate judged them as it judges every bullet: `ac_met`
+from the diff and `ac_proven` from the test log. Neither can show a command's output, so the gate
+ended `revise` (`ac_met:9` 0.84 vs 0.85) with `ac_proven:9` at 0.12 (`no_relevant_test`) and
+`ac_proven:10` at 0.85 after a docs test was added. The readings were right about the evidence and
+wrong about what the bullet needed.
+
+### Code
+
+`command_in_bullet` in `src/jevgate/delivery/rubric.py` marks a bullet as command-backed when it
+quotes inline code with arguments whose first word is an executable (a known tool or a path); a
+bullet naming a test id, a `test_` function, a `tests/` file or a test runner (`pytest -q`,
+`go test`, `python -m unittest`) stays test-backed. Such a bullet gets `command_proven:<i>`
+(choice, `PASS_THRESHOLD` 0.90, proof family) instead of `ac_met:<i>` and `ac_proven:<i>`. It is
+asked in a request of its own, tagged `commands`, over `{ticket, commands}` built from
+`--command-output F` (basename and text, trimmed to `tests_budget`); the change requests are
+untouched, so every older request hashes as before and the test-backed proofs are not read beside
+command output (a first cut put the outputs in `change#1` and every `ac_proven` reading in the
+DIY-24 run dropped by about 0.08). No question wording changed.
+
+### Fixtures
+
+`command-proven-01` (accept: accept-01 plus a bullet `python -m ledger.cli post --period 2024-01
+--amount 5` and its captured output under `commands/`), `command-unproven-01` (unproven: the same
+ticket, no output), `command-proven-02` (accept: a bullet naming three values inside a 72-line JSON
+report, output matching) and `command-differs-01` (unproven: the same, one value off by one). Responses fetched live on 2026-09-28; responses from the two earlier
+state shapes (absolute output path; outputs inside `change#1`) were pruned.
+
+### Sweep and agreement
+
+| threshold | fires on labelled-failing | fires on labelled-passing | agreement |
+|---|---|---|---|
+| 0.50–0.95 | 2/2 | 0/2 | 1.00 |
+
+Readings: 0.97 and 1.00 on the passing pair, 0.02 (`output_differs`) and 0.00
+(`no_output_for_command`) on the failing pair. `command_proven` separates the four cases at every
+candidate, so the default stays at `PASS_THRESHOLD` 0.90 with `ac_proven`. On real tickets the
+same question read 1.00 for a `grep -c` bullet, 0.80 for DIY-24's replay bullet (five conditions,
+`<scratchpad>` placeholders in the quoted command) and 0.54 for a bullet over a 230-line report,
+so bullet wording, not output length, is what moves it. Delivery verdict agreement 17/17 (was
+13/13), gather 1/1;
+no other family moved. `tests/test_calibrate.py::test_delivery_fixtures_agree_from_cached_responses`
+replays all cases from the cache in CI.

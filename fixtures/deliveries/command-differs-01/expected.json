@@ -1,0 +1,11 @@
+{
+  "verdict": "unproven",
+  "failing_gates": [
+    "command_proven"
+  ],
+  "finding_files": [],
+  "gather": [],
+  "commands": [
+    "commands/report.log"
+  ]
+}

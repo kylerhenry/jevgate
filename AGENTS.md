@@ -28,9 +28,9 @@ In Claude Code the plugin also exposes `/ticket-gate` and `/delivery-gate`, whic
 4. Exit 5 (`gather`): enrich the named note or add the named tag, run again. Exit 2 (`ask`): get the human's answers, add them under `### Prior answers` with the bank id, run again.
 5. Exit 1 (`revise` or `split`): edit what the findings cite, or write one draft per piece; run again.
 6. Exit 0 (`ready`): `jevgate ticket render ticket.md` and create the issue.
-7. Do the work. Then run the project's test suite fresh and verbose, so the log names every test, and save its full output: `pytest -v > tests.log 2>&1`, `go test -v ./...`, `npx jest --verbose` (`cargo test` names tests already). A summary-only log cannot prove an acceptance bullet.
-8. `jevgate delivery check --ticket ticket.md --base main --test-log tests.log --run-dir .jevgate/runs/<name>-delivery`.
-9. Exit 1: fix what the findings cite, worst first. Exit 5: run again with `--files <paths named>`. Exit 2 (`unproven`): add or run the missing tests. Exit 0: done.
+7. Do the work. Then run the project's test suite fresh and verbose, so the log names every test, and save its full output: `pytest -v > tests.log 2>&1`, `go test -v ./...`, `npx jest --verbose` (`cargo test` names tests already). A summary-only log cannot prove an acceptance bullet. A bullet that quotes a command with arguments (`jevgate …`, `grep -c …`; not a test runner) is proven by running that command and saving its output: `cmd > out.log 2>&1`.
+8. `jevgate delivery check --ticket ticket.md --base main --test-log tests.log [--command-output out.log]... --run-dir .jevgate/runs/<name>-delivery`.
+9. Exit 1: fix what the findings cite, worst first. Exit 5: run again with `--files <paths named>`. Exit 2 (`unproven`): add or run the missing tests, or run the command a `command_proven` finding names and pass its output with `--command-output`. Exit 0: done.
 10. Stop after three rounds of either gate and hand the last report to a human. Add `.jevgate/` to `.gitignore`.
 
 ## Rules

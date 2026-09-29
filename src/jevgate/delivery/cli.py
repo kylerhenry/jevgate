@@ -32,6 +32,9 @@ def register(subparsers: Any) -> None:
     checker.add_argument("--head", metavar="REF", help="git head ref (requires --base)")
     checker.add_argument("--test-log", dest="test_log", action="append", default=[], metavar="F",
                          help="verbatim test runner output (repeatable)")
+    checker.add_argument("--command-output", dest="command_output", action="append", default=[], metavar="F",
+                         help="captured stdout+stderr of a command an acceptance bullet quotes (repeatable); "
+                              "proves that bullet the way --test-log proves test-backed ones")
     checker.add_argument("--files", action="append", default=[], metavar="PATH[:START-END]",
                          help="post-change file excerpt for the whole-change question (repeatable)")
     checker.add_argument("--no-tests-ok", dest="no_tests_ok", action="store_true",

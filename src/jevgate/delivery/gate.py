@@ -17,6 +17,7 @@ Policy (never a holistic question):
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -81,6 +82,7 @@ class DeliveryInputs:
     diff_text: str
     files_after: list[dict] = field(default_factory=list)
     logs: list[TestLog] = field(default_factory=list)
+    commands: list[dict] = field(default_factory=list)  # {path, text}: captured output of a command a bullet names
     repo: Path | None = None
     base: str | None = None
     head: str | None = None
@@ -157,11 +159,18 @@ def build_inputs(args: Any, cfg: Config) -> DeliveryInputs:
             raise FileNotFoundError(f"test log not found: {path}")
         logs.append(parse_test_log(str(path), path.read_text(encoding="utf-8", errors="replace")))
     files_after = [read_excerpt(repo, spec) for spec in getattr(args, "files", None) or []]
+    commands = []
+    for out_path in getattr(args, "command_output", None) or []:
+        path = Path(out_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"command output not found: {path}")
+        commands.append({"path": str(path), "text": path.read_text(encoding="utf-8", errors="replace")})
     return DeliveryInputs(
         ticket=ticket,
         diff_text=diff_text,
         files_after=files_after,
         logs=logs,
+        commands=commands,
         repo=repo,
         base=getattr(args, "base", None),
         head=getattr(args, "head", None),
@@ -406,6 +415,14 @@ def plan_change(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dict
     return ChangePlan(states, budget, fixed)
 
 
+def commands_state(commands: list[dict], budget: int) -> list[dict]:
+    """The ``commands`` fragment: ``{path, text}`` per captured command output,
+    trimmed to ``budget`` tokens the way ``files_after`` excerpts are.  ``path``
+    is the file's name only, so the state (and its cache hash) does not depend
+    on where the file was read from."""
+    return [{"path": Path(item["path"]).name, "text": item["text"]} for item in files_after_state(commands, budget)]
+
+
 def change_state(inputs: DeliveryInputs, kept: list[FileDiff], dropped: list[dict], cfg: Config) -> list[tuple[dict, Chunk]]:
     """The whole-change states within ``state_budget``, one per chunk (see :func:`plan_change`)."""
     return plan_change(inputs, kept, dropped, cfg).states
@@ -418,13 +435,33 @@ class _ChangeJob:
     job: Job
 
 
+COMMANDS_TAG = "commands"
+
+
+def commands_job(inputs: DeliveryInputs, gates: list[Gate], cfg: Config) -> _ChangeJob | None:
+    """The one request for the ``command_proven`` gates: the ticket and the
+    captured command outputs, nothing else, so the change requests stay as they
+    are for every ticket and the proof of a command is read from its output
+    alone.  ``None`` when no bullet is command-backed."""
+    asked = [g for g in gates if g.family == "command_proven"]
+    if not asked:
+        return None
+    state = {"ticket": _ticket_state(inputs.ticket), "commands": commands_state(inputs.commands, cfg.tests_budget)}
+    questions = to_questions(asked)
+    assert_budget(state, questions)
+    chunk = Chunk(COMMANDS_TAG, 1, 1, "", False, tokens(json.dumps(state, ensure_ascii=False), "code"))
+    return _ChangeJob(chunk, asked, Job(COMMANDS_TAG, state, questions))
+
+
 def _change_jobs(plan: ChangePlan, gates: list[Gate]) -> list[_ChangeJob]:
-    """One job per change chunk.  Every chunk gets the change gates except the
-    proof gates that read only the tests fragment (``ac_proven``), which are
-    asked once, in the first chunk."""
+    """One job per change chunk.  Every chunk gets the change gates except
+    ``ac_proven``, which reads only the tests fragment and is asked once, in
+    the first chunk, and ``command_proven``, which has its own request
+    (:func:`commands_job`)."""
     jobs: list[_ChangeJob] = []
     for state, chunk in plan.states:
-        asked = gates if chunk.index == 1 else [g for g in gates if g.family != "ac_proven"]
+        change = [g for g in gates if g.family != "command_proven"]
+        asked = change if chunk.index == 1 else [g for g in change if g.family != "ac_proven"]
         questions = to_questions(asked)
         assert_budget(state, questions)
         jobs.append(_ChangeJob(chunk, asked, Job(_change_tag(chunk), state, questions)))
@@ -636,14 +673,15 @@ def _change_findings(gates: list[Gate], change: dict[str, _ChangeReading],
         family = gate.family
         if reading.status in ("pass", "na", "unknown"):
             continue
-        location = _ac_location(gate, by_file) if family in ("ac_met", "ac_proven") else {}
+        location = _ac_location(gate, by_file) if family in ("ac_met", "ac_proven", "command_proven") else {}
         if chunked:
             location = {**location, "chunk": entry.chunk}
         base = dict(id=f"jev:{gate.id}", source="jev", gate=family, p=reading.p, threshold=reading.threshold,
                     borderline=reading.borderline, location=location, hint=gate.hint)
         if family in rubric.PROOF_FAMILIES:
-            what = f"criterion {gate.item['criterion']}" if family == "ac_proven" else "the changed code paths"
-            findings.append(Finding(severity="warn", message=f"The test output does not prove {what}" + (f" ({reading.legend or reading.choice})" if (reading.legend or reading.choice) else "") + ".", **base))
+            what = "the changed code paths" if family == "tests_exercise_change" else f"criterion {gate.item['criterion']}"
+            source = "command output" if family == "command_proven" else "test output"
+            findings.append(Finding(severity="warn", message=f"The {source} does not prove {what}" + (f" ({reading.legend or reading.choice})" if (reading.legend or reading.choice) else "") + ".", **base))
         elif reading.status == "fail":
             if family == "ac_met":
                 legend = reading.legend or reading.choice or "not met"
@@ -742,9 +780,12 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
         plan = plan_change(inputs, kept, dropped, cfg)
         gates = rubric.change_gates(acceptance, bool(inputs.logs), cfg)
         change_jobs = _change_jobs(plan, gates)
+        commands = commands_job(inputs, gates, cfg)
+        if commands is not None:
+            change_jobs.append(commands)
         jobs = [item.job for item in file_jobs] + [item.job for item in change_jobs]
         stats["requests"] = len(jobs)
-        stats["change_chunks"] = len(change_jobs)
+        stats["change_chunks"] = len(plan.states)
         results = client.ask_many(jobs)
 
         by_file = _read_file_jobs(file_jobs, results)
@@ -762,7 +803,7 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
         )
         proof = [change[g.id].reading for g in gates if g.family in rubric.PROOF_FAMILIES]
         proven = bool(inputs.logs) and bool(acceptance) and bool(proof) and all(r.status == "pass" for r in proof)
-        change_evidence = change_summary(kept, [item.chunk for item in change_jobs], plan.budget)
+        change_evidence = change_summary(kept, [chunk for _, chunk in plan.states], plan.budget)
 
     fails = any(f.severity == "fail" for f in findings)
     if fails:
@@ -780,6 +821,12 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
     evidence["context"] = _context_evidence(file_jobs, pack)
     if inputs.files_after:
         evidence["files_after"] = [{"path": e.get("path"), "range": e.get("range")} for e in inputs.files_after]
+    if inputs.commands:
+        evidence["commands"] = [
+            {"path": c["path"], "lines": len(c["text"].splitlines()),
+             "sha256": hashlib.sha256(c["text"].encode("utf-8")).hexdigest()}
+            for c in inputs.commands
+        ]
     if inputs.untracked:
         evidence["untracked"] = list(inputs.untracked)
     if inputs.ticket_source:
@@ -806,6 +853,7 @@ def check(inputs: DeliveryInputs, pack: ContextPack | None, client: TypeSafeClie
 __all__ = [
     "DeliveryError", "DeliveryInputs", "build_inputs", "normalise_ticket", "check",
     "rule_findings", "missing_area_gathers", "split_reviewable", "file_state", "change_state", "plan_change", "ChangePlan",
+    "commands_state", "commands_job", "COMMANDS_TAG",
     "worse", "contributing_files",
     "EvidenceError",
 ]
